@@ -206,7 +206,7 @@
 </div>
 
 <script>
-let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", staff: ["Serpil Akpınar", "İpek Naz Karasu", "Ezgi Erdenol", "Yasemin Hazal Dedeağa", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Merve İkra Uzun", "Meral Kılıç"] };
+let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", staff: ["Serpil Akpınar", "Yasemin Hazal Dedeağa", "Ezgi Erdenol", "Mehmet Dikmen", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Meral Kılıç", "Murat Dikmen", "Elif Nur Kasap", "İpek Naz Karasu", "Beyzanur Köşker", "Merve İkra Uzun"] };
 let currentTab = 'checkin';
 let adminUnlocked = false;
 
@@ -250,16 +250,47 @@ function submitAdminPin() {
   }
 }
 
+// RidensEDU Firebase Realtime Database - "personel_takip" düğümü altında saklanıyor
+const FIREBASE_DB_URL = "https://ridensedu-default-rtdb.europe-west1.firebasedatabase.app";
+const FIREBASE_NODE = "personel_takip";
+
+function fbPath(key) {
+  return `${FIREBASE_DB_URL}/${FIREBASE_NODE}/${encodeURIComponent(key)}.json`;
+}
+
+async function kvGet(key) {
+  try {
+    const res = await fetch(fbPath(key));
+    if (!res.ok) return null;
+    const value = await res.json();
+    if (value === null || value === undefined) return null;
+    return { key, value };
+  } catch (e) {
+    console.error('kvGet hatası', e);
+    return null;
+  }
+}
+
+async function kvSet(key, value) {
+  const res = await fetch(fbPath(key), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value)
+  });
+  if (!res.ok) throw new Error('Kayıt isteği başarısız: ' + res.status);
+  return true;
+}
+
 async function loadSettings() {
   try {
-    const r = await window.storage.get('clinic-settings', true);
+    const r = await kvGet('clinic-settings');
     if (r && r.value) settings = JSON.parse(r.value);
   } catch (e) { /* not set yet */ }
   document.getElementById('clinicTitle').textContent = settings.name || "Klinik Giriş Takip";
 }
 
 async function saveSettings() {
-  await window.storage.set('clinic-settings', JSON.stringify(settings), true);
+  await kvSet('clinic-settings', JSON.stringify(settings));
 }
 
 function todayKey(d) {
@@ -269,7 +300,7 @@ function todayKey(d) {
 
 async function getRecords(dateStr) {
   try {
-    const r = await window.storage.get('records:' + dateStr, true);
+    const r = await kvGet('records:' + dateStr);
     return r && r.value ? JSON.parse(r.value) : [];
   } catch (e) { return []; }
 }
@@ -277,8 +308,38 @@ async function getRecords(dateStr) {
 async function addRecord(dateStr, record) {
   const recs = await getRecords(dateStr);
   recs.push(record);
-  await window.storage.set('records:' + dateStr, JSON.stringify(recs), true);
+  await kvSet('records:' + dateStr, JSON.stringify(recs));
 }
+
+// --- İzin / Devamsızlık kayıtları ---
+async function getLeaves() {
+  try {
+    const r = await kvGet('leave-records');
+    return r && r.value ? JSON.parse(r.value) : [];
+  } catch (e) { return []; }
+}
+
+async function saveLeaves(arr) {
+  await kvSet('leave-records', JSON.stringify(arr));
+}
+
+async function addLeaveEntry(entry) {
+  const leaves = await getLeaves();
+  leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), ...entry });
+  await saveLeaves(leaves);
+}
+
+async function removeLeaveEntry(id) {
+  const leaves = await getLeaves();
+  const filtered = leaves.filter(l => l.id !== id);
+  await saveLeaves(filtered);
+}
+
+const LEAVE_TYPES = {
+  hastalik: { label: 'Hastalık', color: 'var(--danger)' },
+  idari: { label: 'İdari İzin', color: '#b8860b' },
+  yillik: { label: 'Yıllık İzin', color: 'var(--primary)' }
+};
 
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -414,6 +475,7 @@ async function renderAdmin() {
   const view = document.getElementById('adminView');
   const todayStr = new Date().toISOString().slice(0,10);
   const records = await getRecords(todayStr);
+  const leaves = await getLeaves();
 
   view.innerHTML = `
     ${settings.adminPin ? `<button class="btn btn-secondary btn-small" style="margin-bottom:10px" onclick="lockAdmin()">🔒 Yönetimi Kilitle</button>` : ''}
@@ -466,6 +528,67 @@ async function renderAdmin() {
       <div class="row-2" style="margin-top:8px">
         <input id="newStaffInput" placeholder="Yeni personel adı" style="margin-bottom:0" />
         <button class="btn btn-primary btn-small" style="margin-top:0" onclick="addStaff()">Ekle</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>İzin / Devamsızlık</h2>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Gün sonunda gelmeyen biri için o günü, ya da planlı bir izin için ileri bir tarihi girebilirsiniz — ikisi de aynı formdan.</p>
+      <label>Personel</label>
+      <select id="leaveStaffSelect">${(settings.staff || []).map(s => `<option value="${s}">${s}</option>`).join('')}</select>
+      <label style="margin-top:8px">Tarih</label>
+      <input id="leaveDateInput" type="date" value="${todayStr}" />
+      <label style="margin-top:8px">İzin Türü</label>
+      <select id="leaveTypeSelect">
+        <option value="hastalik">Hastalık</option>
+        <option value="idari">İdari İzin</option>
+        <option value="yillik">Yıllık İzin</option>
+      </select>
+      <label style="margin-top:8px">Not (isteğe bağlı)</label>
+      <input id="leaveNoteInput" placeholder="Örn. rapor, düğün izni vb." />
+      <button class="btn btn-primary" onclick="submitLeaveEntry()">İzin Kaydı Ekle</button>
+      <div class="status-msg" id="leaveStatus"></div>
+
+      ${(() => {
+        const upcoming = leaves.filter(l => l.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date));
+        if (!upcoming.length) return '';
+        return `
+          <h2 style="margin-top:18px">📅 Yaklaşan Planlı İzinler</h2>
+          <div style="overflow-x:auto">
+          <table>
+            <tr><th>Tarih</th><th>Personel</th><th>Tür</th><th>Not</th><th></th></tr>
+            ${upcoming.map(l => `
+              <tr style="${l.date === todayStr ? 'background:#fff8e6' : ''}">
+                <td>${l.date}${l.date === todayStr ? ' <span style="color:var(--text-muted);font-size:11px">(bugün)</span>' : ''}</td>
+                <td>${l.name}</td>
+                <td><span style="color:${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].color : 'inherit'}">${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].label : l.type}</span></td>
+                <td>${l.note || ''}</td>
+                <td><button onclick="deleteLeaveEntry('${l.id}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
+              </tr>
+            `).join('')}
+          </table>
+          </div>
+        `;
+      })()}
+
+      <h2 style="margin-top:18px">Tüm İzin Kayıtları</h2>
+      <div style="margin-top:4px">
+        ${leaves.length ? `
+          <div style="overflow-x:auto">
+          <table>
+            <tr><th>Tarih</th><th>Personel</th><th>Tür</th><th>Not</th><th></th></tr>
+            ${leaves.slice().sort((a,b) => b.date.localeCompare(a.date)).map(l => `
+              <tr>
+                <td>${l.date}</td>
+                <td>${l.name}</td>
+                <td><span style="color:${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].color : 'inherit'}">${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].label : l.type}</span></td>
+                <td>${l.note || ''}</td>
+                <td><button onclick="deleteLeaveEntry('${l.id}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
+              </tr>
+            `).join('')}
+          </table>
+          </div>
+        ` : '<p class="empty-note">Henüz izin kaydı yok</p>'}
       </div>
     </div>
 
@@ -564,6 +687,36 @@ async function removeStaff(name) {
   renderAdmin();
 }
 
+async function submitLeaveEntry() {
+  const name = document.getElementById('leaveStaffSelect').value;
+  const date = document.getElementById('leaveDateInput').value;
+  const type = document.getElementById('leaveTypeSelect').value;
+  const note = document.getElementById('leaveNoteInput').value.trim();
+  const statusEl = document.getElementById('leaveStatus');
+
+  if (!name || !date) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Personel ve tarih seçin.';
+    return;
+  }
+  statusEl.className = 'status-msg status-loading';
+  statusEl.textContent = 'Kaydediliyor...';
+  try {
+    await addLeaveEntry({ name, date, type, note });
+    statusEl.className = 'status-msg status-success';
+    statusEl.textContent = `✅ ${name} — ${date} için ${LEAVE_TYPES[type].label} kaydedildi.`;
+    renderAdmin();
+  } catch (e) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Kaydetme hatası: ' + (e && e.message ? e.message : 'bilinmeyen hata');
+  }
+}
+
+async function deleteLeaveEntry(id) {
+  await removeLeaveEntry(id);
+  renderAdmin();
+}
+
 function renderRecordsTable(records) {
   if (!records.length) return '<p class="empty-note">Bu tarihte henüz kayıt yok</p>';
 
@@ -631,49 +784,109 @@ function getExpectedForDate(dateStr) {
   return { start: settings.expectedStart || '09:00', end: settings.expectedEnd || '18:00' };
 }
 
-function computeReport(records) {
+function leaveForDate(leaves, name, dateStr) {
+  return leaves.find(l => l.name === name && l.date === dateStr) || null;
+}
+
+function computeReport(records, leaves, dateList, staffList) {
   const byName = {};
-
   records.forEach(r => {
-    if (!byName[r.name]) byName[r.name] = { days: new Set(), totalMinutes: 0, lateCount: 0, earlyLeaveCount: 0, missingCount: 0, assumedCheckoutCount: 0, byDate: {} };
-    const entry = byName[r.name];
-    entry.days.add(r.date);
-    if (!entry.byDate[r.date]) entry.byDate[r.date] = [];
-    entry.byDate[r.date].push(r);
-    if (r.flag === 'missing_giris') entry.missingCount++;
-
-    const exp = getExpectedForDate(r.date);
-    if (exp) {
-      if (r.type !== 'cikis' && timeToMinutes(r.time) > timeToMinutes(exp.start)) entry.lateCount++;
-      if (r.type === 'cikis' && timeToMinutes(r.time) < timeToMinutes(exp.end)) entry.earlyLeaveCount++;
-    }
+    if (!byName[r.name]) byName[r.name] = {};
+    if (!byName[r.name][r.date]) byName[r.name][r.date] = [];
+    byName[r.name][r.date].push(r);
   });
 
-  Object.values(byName).forEach(entry => {
-    Object.keys(entry.byDate).forEach(dateStr => {
-      const dayRecs = entry.byDate[dateStr];
-      const sorted = dayRecs.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+  const result = {};
+  staffList.forEach(name => {
+    const dateGroups = byName[name] || {};
+    const days = [];
+    let totalMinutes = 0;
+    const earlyArr = { count: 0, minutes: 0 };
+    let onTimeArr = 0;
+    const lateArr = { count: 0, minutes: 0 };
+    const earlyDep = { count: 0, minutes: 0 };
+    let onTimeDep = 0;
+    const lateDep = { count: 0, minutes: 0 };
+    let missingCount = 0;
+    let assumedCount = 0;
+    let presentDays = 0;
+    let absentDays = 0;
+    const leaveCounts = { hastalik: 0, idari: 0, yillik: 0 };
+
+    dateList.forEach(dateStr => {
       const exp = getExpectedForDate(dateStr);
-      let openGiris = null;
-      sorted.forEach(r => {
-        if (r.type !== 'cikis') {
-          openGiris = r;
-        } else if (openGiris) {
-          entry.totalMinutes += (timeToMinutes(r.time) - timeToMinutes(openGiris.time));
-          openGiris = null;
+      if (!exp) return; // Pazar - kapalı, hesaba katılmaz
+
+      const dayRecs = (dateGroups[dateStr] || []).slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+
+      if (!dayRecs.length) {
+        // O gün hiç giriş/çıkış kaydı yok: izinli mi, açıklanamayan devamsızlık mı?
+        const leave = leaveForDate(leaves, name, dateStr);
+        if (leave) {
+          leaveCounts[leave.type] = (leaveCounts[leave.type] || 0) + 1;
+          days.push({ date: dateStr, status: 'leave', leaveType: leave.type, leaveNote: leave.note || '' });
+        } else {
+          absentDays++;
+          days.push({ date: dateStr, status: 'absent' });
         }
-      });
-      // Gün sonunda hâlâ kapatılmamış bir giriş varsa, o günün beklenen mesai bitişinde çıkmış say
-      if (openGiris && exp) {
-        const assumedEnd = timeToMinutes(exp.end);
-        const diff = assumedEnd - timeToMinutes(openGiris.time);
-        entry.totalMinutes += Math.max(0, diff);
-        entry.assumedCheckoutCount++;
+        return;
       }
+
+      presentDays++;
+      const arrivalRec = dayRecs.find(r => r.type !== 'cikis');
+      const departureCandidates = dayRecs.filter(r => r.type === 'cikis');
+      const departureRec = departureCandidates.length ? departureCandidates[departureCandidates.length - 1] : null;
+      const hasMissingFlag = dayRecs.some(r => r.flag === 'missing_giris');
+
+      let dayMinutes = 0;
+      let openGiris = null;
+      let assumedThisDay = false;
+      dayRecs.forEach(r => {
+        if (r.type !== 'cikis') { openGiris = r; }
+        else if (openGiris) { dayMinutes += (timeToMinutes(r.time) - timeToMinutes(openGiris.time)); openGiris = null; }
+      });
+      if (openGiris) {
+        dayMinutes += Math.max(0, timeToMinutes(exp.end) - timeToMinutes(openGiris.time));
+        assumedThisDay = true;
+        assumedCount++;
+      }
+      totalMinutes += dayMinutes;
+
+      let arrivalStatus = null, arrivalDiff = 0;
+      if (arrivalRec) {
+        const t = timeToMinutes(arrivalRec.time), s = timeToMinutes(exp.start);
+        if (t < s) { arrivalStatus = 'erken'; arrivalDiff = s - t; earlyArr.count++; earlyArr.minutes += arrivalDiff; }
+        else if (t === s) { arrivalStatus = 'zamanında'; onTimeArr++; }
+        else { arrivalStatus = 'geç'; arrivalDiff = t - s; lateArr.count++; lateArr.minutes += arrivalDiff; }
+      }
+
+      let departureStatus = null, departureDiff = 0;
+      if (departureRec) {
+        const t = timeToMinutes(departureRec.time), e = timeToMinutes(exp.end);
+        if (t < e) { departureStatus = 'erken'; departureDiff = e - t; earlyDep.count++; earlyDep.minutes += departureDiff; }
+        else if (t === e) { departureStatus = 'zamanında'; onTimeDep++; }
+        else { departureStatus = 'geç'; departureDiff = t - e; lateDep.count++; lateDep.minutes += departureDiff; }
+      }
+
+      if (hasMissingFlag && !arrivalRec) missingCount++;
+
+      days.push({
+        date: dateStr,
+        status: 'present',
+        arrivalTime: arrivalRec ? arrivalRec.time : null,
+        arrivalStatus, arrivalDiff,
+        departureTime: departureRec ? departureRec.time : null,
+        departureStatus, departureDiff,
+        assumed: assumedThisDay,
+        missing: hasMissingFlag && !arrivalRec,
+        dayMinutes
+      });
     });
+
+    result[name] = { days, totalMinutes, earlyArr, onTimeArr, lateArr, earlyDep, onTimeDep, lateDep, missingCount, assumedCount, presentDays, absentDays, leaveCounts };
   });
 
-  return byName;
+  return result;
 }
 
 function minutesToHM(mins) {
@@ -700,14 +913,17 @@ async function runReport() {
   statusEl.textContent = 'Rapor hazırlanıyor...';
 
   const records = await getRecordsForRange(start, end);
-  const report = computeReport(records);
+  const leaves = await getLeaves();
+  const dateList = dateRange(start, end);
+  const staffList = (settings.staff || []).slice();
+  const report = computeReport(records, leaves, dateList, staffList);
   lastReport = report;
   lastReportRange = { start, end };
 
   const names = Object.keys(report).sort();
   if (!names.length) {
     statusEl.className = 'status-msg status-error';
-    statusEl.textContent = 'Bu tarih aralığında kayıt bulunamadı.';
+    statusEl.textContent = 'Personel listesi boş görünüyor.';
     resultEl.innerHTML = '';
     return;
   }
@@ -716,27 +932,98 @@ async function runReport() {
   const rows = names.map(name => {
     const e = report[name];
     const missingHtml = e.missingCount ? `<span style="color:var(--danger)">${e.missingCount}</span>` : '0';
-    const assumedHtml = e.assumedCheckoutCount ? `<span style="color:var(--text-muted)">${e.assumedCheckoutCount}</span>` : '0';
+    const assumedHtml = e.assumedCount ? `<span style="color:var(--text-muted)">${e.assumedCount}</span>` : '0';
+    const earlyArrHtml = e.earlyArr.count ? `<span style="color:var(--success)">${e.earlyArr.count}g / ${e.earlyArr.minutes}dk</span>` : '—';
+    const lateArrHtml = e.lateArr.count ? `<span style="color:var(--danger)">${e.lateArr.count}g / ${e.lateArr.minutes}dk</span>` : '—';
+    const earlyDepHtml = e.earlyDep.count ? `<span style="color:var(--danger)">${e.earlyDep.count}g / ${e.earlyDep.minutes}dk</span>` : '—';
+    const lateDepHtml = e.lateDep.count ? `<span style="color:var(--success)">${e.lateDep.count}g / ${e.lateDep.minutes}dk</span>` : '—';
     return `<tr>
       <td>${name}</td>
-      <td>${e.days.size}</td>
+      <td>${e.presentDays}</td>
       <td>${minutesToHM(e.totalMinutes)}</td>
-      <td>${e.lateCount || 0}</td>
-      <td>${e.earlyLeaveCount || 0}</td>
+      <td>${earlyArrHtml}</td>
+      <td>${lateArrHtml}</td>
+      <td>${earlyDepHtml}</td>
+      <td>${lateDepHtml}</td>
       <td>${missingHtml}</td>
       <td>${assumedHtml}</td>
     </tr>`;
   }).join('');
 
+  // İzin / devamsızlık özet tablosu
+  const leaveRows = names.map(name => {
+    const e = report[name];
+    const hastaHtml = e.leaveCounts.hastalik ? `<span style="color:${LEAVE_TYPES.hastalik.color}">${e.leaveCounts.hastalik}</span>` : '0';
+    const idariHtml = e.leaveCounts.idari ? `<span style="color:${LEAVE_TYPES.idari.color}">${e.leaveCounts.idari}</span>` : '0';
+    const yillikHtml = e.leaveCounts.yillik ? `<span style="color:${LEAVE_TYPES.yillik.color}">${e.leaveCounts.yillik}</span>` : '0';
+    const absentHtml = e.absentDays ? `<span style="color:var(--danger);font-weight:700">${e.absentDays}</span>` : '0';
+    return `<tr>
+      <td>${name}</td>
+      <td>${hastaHtml}</td>
+      <td>${idariHtml}</td>
+      <td>${yillikHtml}</td>
+      <td>${absentHtml}</td>
+    </tr>`;
+  }).join('');
+
+  // Kişi + tarih bazında tüm günlük detayları (gelen / izinli / açıklanamayan) tek listede topla
+  const dailyRows = [];
+  names.forEach(name => {
+    report[name].days.forEach(d => dailyRows.push({ name, ...d }));
+  });
+  dailyRows.sort((a,b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+
+  const statusColor = (s) => s === 'geç' ? 'var(--danger)' : (s === 'erken' ? 'var(--danger)' : 'var(--text-muted)');
+  const depStatusColor = (s) => s === 'erken' ? 'var(--danger)' : (s === 'geç' ? 'var(--success)' : 'var(--text-muted)');
+
+  const dailyTableRows = dailyRows.map(d => {
+    if (d.status === 'leave') {
+      const lt = LEAVE_TYPES[d.leaveType] || { label: d.leaveType, color: 'var(--text-muted)' };
+      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:${lt.color}">📌 ${lt.label}</span>${d.leaveNote ? ` <span style="color:var(--text-muted);font-size:11px">(${d.leaveNote})</span>` : ''}</td></tr>`;
+    }
+    if (d.status === 'absent') {
+      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--danger)">⚠️ Açıklanamayan devamsızlık</span></td></tr>`;
+    }
+    const arrCell = d.arrivalTime
+      ? `${d.arrivalTime} ${d.arrivalStatus ? `<span style="color:${statusColor(d.arrivalStatus)};font-size:11px">(${d.arrivalStatus}${d.arrivalDiff ? ' ' + d.arrivalDiff + 'dk' : ''})</span>` : ''}`
+      : (d.missing ? '<span style="color:var(--danger)">⚠️ yok</span>' : '—');
+    const depCell = d.departureTime
+      ? `${d.departureTime} ${d.departureStatus ? `<span style="color:${depStatusColor(d.departureStatus)};font-size:11px">(${d.departureStatus}${d.departureDiff ? ' ' + d.departureDiff + 'dk' : ''})</span>` : ''}`
+      : (d.assumed ? `<span style="color:var(--text-muted)">${getExpectedForDate(d.date) ? getExpectedForDate(d.date).end : ''} (tahmini)</span>` : '—');
+    return `<tr><td>${d.date}</td><td>${d.name}</td><td>${arrCell}</td><td>${depCell}</td></tr>`;
+  }).join('');
+
   resultEl.innerHTML = `
+    <div style="overflow-x:auto">
     <table>
-      <tr><th>Personel</th><th>Gün</th><th>Toplam Süre</th><th>Geç</th><th>Erken</th><th>Eksik</th><th>Tahmini</th></tr>
+      <tr><th>Personel</th><th>Gün</th><th>Toplam</th><th>Erken Geliş</th><th>Geç Geliş</th><th>Erken Çıkış</th><th>Geç Çıkış</th><th>Eksik</th><th>Tahmini</th></tr>
       ${rows}
     </table>
-    <p class="empty-note" style="text-align:left;margin-top:8px">"Tahmini" = çıkış unutulup mesai bitişinde (hafta içi ${settings.expectedEnd || '18:00'}, Cumartesi ${settings.saturdayEnd || '14:00'}) çıkmış varsayılan gün sayısı. Pazar günleri geç/erken hesabına dahil edilmez.</p>
+    </div>
+    <p class="empty-note" style="text-align:left;margin-top:8px">
+      "Gün" = fiilen çalışılan gün sayısı (izinli/devamsız günler hariç). "Geç Çıkış" (yeşil) = hasta devam ettiği için mesai bitişinden sonra çıkmış, olumlu kabul edilir. "Tahmini" = çıkış unutulup mesai bitişinde çıkmış varsayılan gün. Beklenen saatler: hafta içi ${settings.expectedStart || '09:00'}-${settings.expectedEnd || '18:00'}, Cumartesi ${settings.saturdayStart || '09:00'}-${settings.saturdayEnd || '14:00'}; Pazar hesaba dahil edilmez.
+    </p>
+
+    <h2 style="margin-top:18px">İzin / Devamsızlık Özeti</h2>
+    <div style="overflow-x:auto">
+    <table>
+      <tr><th>Personel</th><th>Hastalık</th><th>İdari İzin</th><th>Yıllık İzin</th><th>Açıklanamayan</th></tr>
+      ${leaveRows}
+    </table>
+    </div>
+    <p class="empty-note" style="text-align:left;margin-top:8px">"Açıklanamayan" = beklenen mesai günü olduğu halde ne giriş/çıkış kaydı ne de izin kaydı bulunan günler. Yönetim → İzin/Devamsızlık'tan işaretleyerek bu sayıyı sıfırlayabilirsiniz.</p>
+
+    <h2 style="margin-top:18px">Günlük Detay (${dailyRows.length} gün × personel)</h2>
+    <div style="overflow-x:auto">
+    <table>
+      <tr><th>Tarih</th><th>Personel</th><th>Giriş</th><th>Çıkış</th></tr>
+      ${dailyTableRows}
+    </table>
+    </div>
+
     <div class="row-2" style="margin-top:10px">
-      <button class="btn btn-secondary btn-small" onclick="downloadSummaryCSV()">⬇️ Özet CSV İndir</button>
-      <button class="btn btn-secondary btn-small" onclick="downloadRawCSV()">⬇️ Ham Kayıtlar CSV İndir</button>
+      <button class="btn btn-secondary btn-small" onclick="downloadSummaryCSV()">⬇️ Özet CSV</button>
+      <button class="btn btn-secondary btn-small" onclick="downloadDailyCSV()">⬇️ Günlük Detay CSV</button>
     </div>
   `;
 }
@@ -764,22 +1051,49 @@ function triggerCSVDownload(filename, rows) {
 
 function downloadSummaryCSV() {
   if (!lastReport) return;
-  const rows = [['Personel', 'Gün Sayısı', 'Toplam Dakika', 'Toplam Süre', 'Geç Geliş', 'Erken Çıkış', 'Eksik Kayıt', 'Tahmini Kapanış']];
+  const rows = [['Personel', 'Çalışılan Gün', 'Toplam Dakika', 'Toplam Süre', 'Erken Geliş (gün)', 'Erken Geliş (dk)', 'Geç Geliş (gün)', 'Geç Geliş (dk)', 'Erken Çıkış (gün)', 'Erken Çıkış (dk)', 'Geç Çıkış (gün)', 'Geç Çıkış (dk)', 'Eksik Kayıt', 'Tahmini Kapanış', 'Hastalık', 'İdari İzin', 'Yıllık İzin', 'Açıklanamayan Devamsızlık']];
   Object.keys(lastReport).sort().forEach(name => {
     const e = lastReport[name];
-    rows.push([name, e.days.size, Math.round(e.totalMinutes), minutesToHM(e.totalMinutes), e.lateCount || 0, e.earlyLeaveCount || 0, e.missingCount || 0, e.assumedCheckoutCount || 0]);
+    rows.push([
+      name, e.presentDays, Math.round(e.totalMinutes), minutesToHM(e.totalMinutes),
+      e.earlyArr.count, e.earlyArr.minutes,
+      e.lateArr.count, e.lateArr.minutes,
+      e.earlyDep.count, e.earlyDep.minutes,
+      e.lateDep.count, e.lateDep.minutes,
+      e.missingCount, e.assumedCount,
+      e.leaveCounts.hastalik, e.leaveCounts.idari, e.leaveCounts.yillik, e.absentDays
+    ]);
   });
   triggerCSVDownload(`ozet_${lastReportRange.start}_${lastReportRange.end}.csv`, rows);
 }
 
-async function downloadRawCSV() {
-  if (!lastReportRange) return;
-  const records = await getRecordsForRange(lastReportRange.start, lastReportRange.end);
-  const rows = [['Tarih', 'Personel', 'Tür', 'Saat', 'Uyarı']];
-  records.sort((a,b) => a.timestamp.localeCompare(b.timestamp)).forEach(r => {
-    rows.push([r.date, r.name, r.type === 'cikis' ? 'Çıkış' : 'Giriş', r.time, r.flag === 'missing_giris' ? 'Giriş kaydı eksik' : '']);
+function downloadDailyCSV() {
+  if (!lastReport) return;
+  const rows = [['Tarih', 'Personel', 'Durum', 'Giriş Saati', 'Giriş Durumu', 'Giriş Farkı (dk)', 'Çıkış Saati', 'Çıkış Durumu', 'Çıkış Farkı (dk)', 'Gün Süresi (dk)', 'Not']];
+  const allDays = [];
+  Object.keys(lastReport).sort().forEach(name => {
+    lastReport[name].days.forEach(d => allDays.push({ name, ...d }));
   });
-  triggerCSVDownload(`kayitlar_${lastReportRange.start}_${lastReportRange.end}.csv`, rows);
+  allDays.sort((a,b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  allDays.forEach(d => {
+    if (d.status === 'leave') {
+      const lt = LEAVE_TYPES[d.leaveType] || { label: d.leaveType };
+      rows.push([d.date, d.name, lt.label, '', '', '', '', '', '', '', d.leaveNote || '']);
+      return;
+    }
+    if (d.status === 'absent') {
+      rows.push([d.date, d.name, 'Açıklanamayan devamsızlık', '', '', '', '', '', '', '', '']);
+      return;
+    }
+    const note = d.missing ? 'Giriş kaydı eksik' : (d.assumed ? 'Çıkış varsayıldı (unutulmuş)' : '');
+    rows.push([
+      d.date, d.name, 'Çalıştı',
+      d.arrivalTime || '', d.arrivalStatus || '', d.arrivalStatus ? d.arrivalDiff : '',
+      d.departureTime || '', d.departureStatus || '', d.departureStatus ? d.departureDiff : '',
+      Math.round(d.dayMinutes), note
+    ]);
+  });
+  triggerCSVDownload(`gunluk_detay_${lastReportRange.start}_${lastReportRange.end}.csv`, rows);
 }
 
 (async function init() {
