@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Klinik Personel Giriş Takip</title>
+<!-- Ridens Klinik Personel Giriş Takip Sistemi -->
+<style>
+  :root {
+    --primary: #1e6091;
+    --primary-dark: #144a70;
+    --accent: #52b69a;
+    --bg: #f4f8fb;
+    --card-bg: #ffffff;
+    --text: #1c2b33;
+    --text-muted: #64748b;
+    --border: #dbe5ec;
+    --danger: #d64545;
+    --success: #2e8b57;
+  }
+  * { box-sizing: border-box; }
+  #app {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  .header {
+    text-align: center;
+    padding: 20px 12px 16px;
+  }
+  .header h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+    color: var(--primary-dark);
+  }
+  .header p {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .tabs {
+    display: flex;
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    background: transparent;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .tab-btn.active {
+    background: var(--primary);
+    color: white;
+  }
+  .card {
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border: 1px solid var(--border);
+  }
+  .card h2 {
+    font-size: 15px;
+    margin: 0 0 12px;
+    color: var(--primary-dark);
+  }
+  select, input {
+    width: 100%;
+    padding: 11px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    font-size: 15px;
+    margin-bottom: 10px;
+    background: white;
+    color: var(--text);
+  }
+  label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .btn {
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:active { background: var(--primary-dark); }
+  .btn-secondary { background: #eef3f6; color: var(--primary-dark); }
+  .btn-danger { background: #fdeaea; color: var(--danger); }
+  .btn-small { padding: 8px 12px; font-size: 13px; width: auto; }
+  .status-msg {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    text-align: center;
+    display: none;
+  }
+  .status-success { background: #e6f4ea; color: var(--success); display: block; }
+  .status-error { background: #fdeaea; color: var(--danger); display: block; }
+  .status-loading { background: #eef3f6; color: var(--text-muted); display: block; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--text-muted); font-weight: 600; }
+  .late { color: var(--danger); font-weight: 600; }
+  .ontime { color: var(--success); font-weight: 600; }
+  .staff-chip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background: #f7fafc;
+    border-radius: 8px;
+    margin-bottom: 6px;
+    font-size: 14px;
+  }
+  .staff-chip button {
+    border: none;
+    background: none;
+    color: var(--danger);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .staff-chip button.arrow-btn {
+    color: var(--primary);
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .empty-note {
+    font-size: 13px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 8px 0;
+  }
+  .row-2 { display: flex; gap: 8px; }
+  .row-2 > * { flex: 1; }
+  .name-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .name-btn {
+    padding: 14px 8px;
+    border-radius: 10px;
+    border: 2px solid var(--border);
+    background: white;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+  }
+  .name-btn.selected {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: white;
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="header">
+    <h1 id="clinicTitle">Klinik Giriş Takip</h1>
+    <p>QR ile personel giriş kaydı</p>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tabCheckinBtn" onclick="switchTab('checkin')">Giriş Yap</button>
+    <button class="tab-btn" id="tabAdminBtn" onclick="switchTab('admin')">Yönetim</button>
+  </div>
+
+  <div id="checkinView"></div>
+  <div id="adminView" style="display:none"></div>
+</div>
+
+<script>
+let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", staff: ["Serpil Akpınar", "İpek Naz Karasu", "Ezgi Erdenol", "Yasemin Hazal Dedeağa", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Merve İkra Uzun", "Meral Kılıç"] };
+let currentTab = 'checkin';
+let adminUnlocked = false;
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tabCheckinBtn').classList.toggle('active', tab === 'checkin');
+  document.getElementById('tabAdminBtn').classList.toggle('active', tab === 'admin');
+  document.getElementById('checkinView').style.display = tab === 'checkin' ? 'block' : 'none';
+  document.getElementById('adminView').style.display = tab === 'admin' ? 'block' : 'none';
+  if (tab === 'checkin') {
+    renderCheckin();
+  } else {
+    if (settings.adminPin && !adminUnlocked) renderAdminLock();
+    else renderAdmin();
+  }
+}
+
+function renderAdminLock() {
+  const view = document.getElementById('adminView');
+  view.innerHTML = `
+    <div class="card">
+      <h2>Yönetim - PIN Gerekli</h2>
+      <label>PIN kodunu girin</label>
+      <input id="adminPinInput" type="password" inputmode="numeric" placeholder="••••" onkeydown="if(event.key==='Enter') submitAdminPin()" />
+      <button class="btn btn-primary" onclick="submitAdminPin()">Giriş Yap</button>
+      <div class="status-msg" id="pinStatus"></div>
+    </div>
+  `;
+  document.getElementById('adminPinInput').focus();
+}
+
+function submitAdminPin() {
+  const entered = document.getElementById('adminPinInput').value;
+  const statusEl = document.getElementById('pinStatus');
+  if (entered === settings.adminPin) {
+    adminUnlocked = true;
+    renderAdmin();
+  } else {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'PIN hatalı, tekrar deneyin.';
+  }
+}
+
+async function loadSettings() {
+  try {
+    const r = await window.storage.get('clinic-settings', true);
+    if (r && r.value) settings = JSON.parse(r.value);
+  } catch (e) { /* not set yet */ }
+  document.getElementById('clinicTitle').textContent = settings.name || "Klinik Giriş Takip";
+}
+
+async function saveSettings() {
+  await window.storage.set('clinic-settings', JSON.stringify(settings), true);
+}
+
+function todayKey(d) {
+  const dt = d || new Date();
+  return 'records:' + dt.toISOString().slice(0,10);
+}
+
+async function getRecords(dateStr) {
+  try {
+    const r = await window.storage.get('records:' + dateStr, true);
+    return r && r.value ? JSON.parse(r.value) : [];
+  } catch (e) { return []; }
+}
+
+async function addRecord(dateStr, record) {
+  const recs = await getRecords(dateStr);
+  recs.push(record);
+  await window.storage.set('records:' + dateStr, JSON.stringify(recs), true);
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+let selectedStaff = null;
+
+function renderCheckin() {
+  const view = document.getElementById('checkinView');
+  const nameButtons = (settings.staff || []).map(s => `
+    <button class="name-btn ${s === selectedStaff ? 'selected' : ''}" onclick="selectStaff('${s.replace(/'/g,"\\'")}')">${s}</button>
+  `).join('');
+
+  view.innerHTML = `
+    <div class="card">
+      <h2>Adınıza Dokunun</h2>
+      ${settings.staff && settings.staff.length ? `
+        <div class="name-grid">${nameButtons}</div>
+        <div class="status-msg" id="staffStatus" style="display:${selectedStaff ? 'block' : 'none'};background:#eef3f6;color:var(--text-muted)"></div>
+        <div class="row-2" style="${selectedStaff ? '' : 'display:none'}" id="checkinButtons">
+          <button class="btn btn-primary" id="btnGiris" onclick="doCheck('giris')">📍 Giriş Yap</button>
+          <button class="btn btn-danger" id="btnCikis" onclick="doCheck('cikis')">📍 Çıkış Yap</button>
+        </div>
+        <div class="status-msg" id="checkinStatus"></div>
+        ${selectedStaff ? `<button class="btn btn-secondary btn-small" style="margin-top:10px" onclick="selectStaff(null)">↺ Farklı biri mi?</button>` : ''}
+      ` : `<p class="empty-note">Henüz personel eklenmemiş. Yönetim sekmesinden ekleyin.</p>`}
+    </div>
+  `;
+  if (selectedStaff) updateStaffStatus();
+}
+
+function selectStaff(name) {
+  selectedStaff = name;
+  renderCheckin();
+}
+
+async function getTodayStatus(name) {
+  const todayStr = new Date().toISOString().slice(0,10);
+  const records = await getRecords(todayStr);
+  const mine = records.filter(r => r.name === name);
+  const lastGiris = mine.filter(r => r.type !== 'cikis').slice(-1)[0];
+  const lastCikis = mine.filter(r => r.type === 'cikis').slice(-1)[0];
+  // "açık" giriş var mı: son giriş, son çıkıştan sonra mı oldu?
+  const openGiris = lastGiris && (!lastCikis || lastGiris.timestamp > lastCikis.timestamp);
+  return { mine, lastGiris, lastCikis, openGiris };
+}
+
+async function updateStaffStatus() {
+  const name = selectedStaff;
+  const statusEl = document.getElementById('staffStatus');
+  if (!statusEl || !name) return;
+  const { mine, lastGiris, openGiris } = await getTodayStatus(name);
+
+  if (!mine.length) {
+    statusEl.textContent = 'Bugün için henüz kayıt yok. İşe geldiğinizde "Giriş Yap"a basın.';
+  } else if (openGiris) {
+    statusEl.textContent = `Girişiniz ${lastGiris.time}'te alındı. Çıkarken "Çıkış Yap"a basmayı unutmayın.`;
+  } else {
+    statusEl.textContent = `Bugün için kaydınız tamam (son işlem: ${mine.slice(-1)[0].type === 'cikis' ? 'çıkış' : 'giriş'}, ${mine.slice(-1)[0].time}).`;
+  }
+}
+
+async function doCheck(type) {
+  const statusEl = document.getElementById('checkinStatus');
+  const name = selectedStaff;
+  const label = type === 'giris' ? 'Giriş' : 'Çıkış';
+  statusEl.className = 'status-msg status-loading';
+  statusEl.textContent = 'Konum kontrol ediliyor...';
+
+  if (!settings.lat) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Klinik konumu henüz ayarlanmamış. Yönetim sekmesinden ayarlayın.';
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Bu cihaz konum bilgisini desteklemiyor.';
+    return;
+  }
+
+  // Çıkış yapılıyor ama bugün açık bir giriş yoksa, bunu anomali olarak işaretleyeceğiz
+  const { openGiris } = await getTodayStatus(name);
+  const missingGiris = type === 'cikis' && !openGiris;
+
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const dist = haversine(pos.coords.latitude, pos.coords.longitude, settings.lat, settings.lng);
+    if (dist > settings.radius) {
+      statusEl.className = 'status-msg status-error';
+      statusEl.textContent = `Klinik dışında görünüyorsunuz (yaklaşık ${Math.round(dist)}m uzakta). ${label} kaydedilmedi.`;
+      return;
+    }
+    const now = new Date();
+    const record = {
+      name,
+      type,
+      time: now.toTimeString().slice(0,5),
+      timestamp: now.toISOString(),
+      flag: missingGiris ? 'missing_giris' : null
+    };
+    try {
+      await addRecord(now.toISOString().slice(0,10), record);
+      if (missingGiris) {
+        statusEl.className = 'status-msg status-error';
+        statusEl.textContent = `⚠️ ${name} — Çıkış kaydedildi (${record.time}) ama bugün için giriş kaydınız görünmüyor. Yöneticinize bildirin.`;
+      } else {
+        statusEl.className = 'status-msg status-success';
+        statusEl.textContent = `✅ ${name} — ${label} kaydedildi (${record.time})`;
+      }
+      updateStaffStatus();
+      setTimeout(() => { selectStaff(null); }, 2500);
+    } catch (e) {
+      statusEl.className = 'status-msg status-error';
+      statusEl.textContent = 'Kayıt sırasında bir hata oluştu, tekrar deneyin.';
+    }
+  }, (err) => {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = `Konum izni verilmedi. ${label} kaydı için konum erişimi gereklidir.`;
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+function lockAdmin() {
+  adminUnlocked = false;
+  renderAdminLock();
+}
+
+async function renderAdmin() {
+  const view = document.getElementById('adminView');
+  const todayStr = new Date().toISOString().slice(0,10);
+  const records = await getRecords(todayStr);
+
+  view.innerHTML = `
+    ${settings.adminPin ? `<button class="btn btn-secondary btn-small" style="margin-bottom:10px" onclick="lockAdmin()">🔒 Yönetimi Kilitle</button>` : ''}
+    <div class="card">
+      <h2>Klinik Ayarları</h2>
+      <label>Klinik Adı</label>
+      <input id="clinicNameInput" value="${settings.name || ''}" />
+      <label>Konum</label>
+      <p class="empty-note" style="text-align:left;margin:0 0 8px">${settings.lat ? `Ayarlı: ${settings.lat.toFixed(6)}, ${settings.lng.toFixed(6)}` : 'Konum henüz ayarlanmadı'}</p>
+      <button class="btn btn-secondary" onclick="setClinicLocation()">📍 Konumu Şu An Bulunduğum Yere Ayarla</button>
+      <label style="margin-top:10px">veya Koordinatları Elle Girin (enlem, boylam)</label>
+      <div class="row-2">
+        <input id="latInput" type="number" step="0.000001" placeholder="Enlem (lat)" value="${settings.lat ?? ''}" />
+        <input id="lngInput" type="number" step="0.000001" placeholder="Boylam (lng)" value="${settings.lng ?? ''}" />
+      </div>
+      <label style="margin-top:10px">İzin Verilen Mesafe (metre)</label>
+      <input id="radiusInput" type="number" value="${settings.radius || 150}" />
+      <label style="margin-top:10px">Beklenen Mesai Saatleri — Hafta İçi (Pzt-Cuma)</label>
+      <div class="row-2">
+        <input id="expectedStartInput" type="time" value="${settings.expectedStart || '09:00'}" />
+        <input id="expectedEndInput" type="time" value="${settings.expectedEnd || '18:00'}" />
+      </div>
+      <label style="margin-top:10px">Beklenen Mesai Saatleri — Cumartesi</label>
+      <div class="row-2">
+        <input id="saturdayStartInput" type="time" value="${settings.saturdayStart || '09:00'}" />
+        <input id="saturdayEndInput" type="time" value="${settings.saturdayEnd || '14:00'}" />
+      </div>
+      <p class="empty-note" style="text-align:left;margin:4px 0 0">Pazar günleri klinik kapalı kabul edilir, geç/erken hesabına dahil edilmez.</p>
+      <label style="margin-top:10px">Yönetim PIN Kodu</label>
+      <input id="adminPinSetting" type="text" inputmode="numeric" placeholder="Örn. 2026" value="${settings.adminPin || ''}" />
+      <button class="btn btn-primary" onclick="saveClinicSettings()">Ayarları Kaydet</button>
+      <div class="status-msg" id="settingsStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>Personel Listesi</h2>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Sıralama, isim ızgarasında göründükleri sıradır. Ok butonlarıyla değiştirebilirsiniz.</p>
+      <div id="staffList">
+        ${(settings.staff || []).map((s, i) => `
+          <div class="staff-chip">
+            <span>${s}</span>
+            <span style="display:flex;gap:10px;align-items:center">
+              <button class="arrow-btn" onclick="moveStaff(${i}, -1)" ${i === 0 ? 'disabled style="opacity:0.3"' : ''}>↑</button>
+              <button class="arrow-btn" onclick="moveStaff(${i}, 1)" ${i === (settings.staff.length - 1) ? 'disabled style="opacity:0.3"' : ''}>↓</button>
+              <button onclick="removeStaff('${s.replace(/'/g,"\\'")}')">Sil</button>
+            </span>
+          </div>
+        `).join('') || '<p class="empty-note">Henüz personel yok</p>'}
+      </div>
+      <div class="row-2" style="margin-top:8px">
+        <input id="newStaffInput" placeholder="Yeni personel adı" style="margin-bottom:0" />
+        <button class="btn btn-primary btn-small" style="margin-top:0" onclick="addStaff()">Ekle</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Bugünün Kayıtları (${todayStr})</h2>
+      ${renderRecordsTable(records)}
+    </div>
+
+    <div class="card">
+      <h2>Tek Gün Görüntüle</h2>
+      <input id="historyDate" type="date" value="${todayStr}" />
+      <button class="btn btn-secondary" onclick="loadHistory()">Görüntüle</button>
+      <div id="historyResult" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Raporlama (Tarih Aralığı)</h2>
+      <label>Başlangıç</label>
+      <input id="reportStart" type="date" value="${todayStr}" />
+      <label style="margin-top:8px">Bitiş</label>
+      <input id="reportEnd" type="date" value="${todayStr}" />
+      <button class="btn btn-primary" onclick="runReport()">Rapor Oluştur</button>
+      <div class="status-msg" id="reportStatus"></div>
+      <div id="reportResult" style="margin-top:12px"></div>
+    </div>
+  `;
+}
+
+function setClinicLocation() {
+  const statusEl = document.getElementById('settingsStatus');
+  statusEl.className = 'status-msg status-loading';
+  statusEl.textContent = 'Konum alınıyor...';
+  navigator.geolocation.getCurrentPosition((pos) => {
+    settings.lat = pos.coords.latitude;
+    settings.lng = pos.coords.longitude;
+    statusEl.className = 'status-msg status-success';
+    statusEl.textContent = 'Konum alındı. Kaydetmek için "Ayarları Kaydet" butonuna basın.';
+    renderAdmin();
+  }, () => {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Konum alınamadı, izinleri kontrol edin.';
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+async function saveClinicSettings() {
+  settings.name = document.getElementById('clinicNameInput').value || 'Klinik';
+  settings.radius = parseInt(document.getElementById('radiusInput').value) || 150;
+  settings.adminPin = document.getElementById('adminPinSetting').value.trim() || null;
+  settings.expectedStart = document.getElementById('expectedStartInput').value || '09:00';
+  settings.expectedEnd = document.getElementById('expectedEndInput').value || '18:00';
+  settings.saturdayStart = document.getElementById('saturdayStartInput').value || '09:00';
+  settings.saturdayEnd = document.getElementById('saturdayEndInput').value || '14:00';
+  const latVal = parseFloat(document.getElementById('latInput').value);
+  const lngVal = parseFloat(document.getElementById('lngInput').value);
+  if (!isNaN(latVal) && !isNaN(lngVal)) {
+    settings.lat = latVal;
+    settings.lng = lngVal;
+  }
+  try {
+    await saveSettings();
+    document.getElementById('clinicTitle').textContent = settings.name;
+    const statusEl = document.getElementById('settingsStatus');
+    statusEl.className = 'status-msg status-success';
+    statusEl.textContent = 'Ayarlar kaydedildi.';
+    renderAdmin();
+  } catch (e) {
+    const statusEl = document.getElementById('settingsStatus');
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Kaydetme hatası: ' + (e && e.message ? e.message : 'bilinmeyen hata') + '. Bu sayfayı Claude üzerinde paylaşılan link ile mi açıyorsunuz?';
+  }
+}
+
+async function addStaff() {
+  const input = document.getElementById('newStaffInput');
+  const name = input.value.trim();
+  if (!name) return;
+  if (!settings.staff) settings.staff = [];
+  if (settings.staff.includes(name)) { input.value = ''; return; }
+  settings.staff.push(name);
+  await saveSettings();
+  renderAdmin();
+}
+
+async function moveStaff(index, direction) {
+  const newIndex = index + direction;
+  if (newIndex < 0 || newIndex >= settings.staff.length) return;
+  const arr = settings.staff;
+  [arr[index], arr[newIndex]] = [arr[newIndex], arr[index]];
+  await saveSettings();
+  renderAdmin();
+}
+
+async function removeStaff(name) {
+  settings.staff = (settings.staff || []).filter(s => s !== name);
+  await saveSettings();
+  renderAdmin();
+}
+
+function renderRecordsTable(records) {
+  if (!records.length) return '<p class="empty-note">Bu tarihte henüz kayıt yok</p>';
+
+  // Kişi bazında giriş/çıkış saatlerini grupla (aynı kişi için birden fazla giriş/çıkış olabilir)
+  const byName = {};
+  records.forEach(r => {
+    if (!byName[r.name]) byName[r.name] = { giris: [], cikis: [], hasFlag: false };
+    if (r.type === 'cikis') byName[r.name].cikis.push(r.time);
+    else byName[r.name].giris.push(r.time);
+    if (r.flag === 'missing_giris') byName[r.name].hasFlag = true;
+  });
+
+  const rows = Object.keys(byName).sort().map(name => {
+    const entry = byName[name];
+    const g = entry.giris.length ? entry.giris.join(', ') : (entry.hasFlag ? '<span style="color:var(--danger)">⚠️ Eksik</span>' : '—');
+    const c = entry.cikis.join(', ') || '—';
+    return `<tr><td>${name}</td><td>${g}</td><td>${c}</td></tr>`;
+  }).join('');
+
+  return `
+    <table>
+      <tr><th>Personel</th><th>Giriş</th><th>Çıkış</th></tr>
+      ${rows}
+    </table>
+  `;
+}
+
+async function loadHistory() {
+  const dateStr = document.getElementById('historyDate').value;
+  const records = await getRecords(dateStr);
+  const el = document.getElementById('historyResult');
+  el.innerHTML = renderRecordsTable(records);
+}
+
+function dateRange(startStr, endStr) {
+  const dates = [];
+  let d = new Date(startStr + 'T00:00:00');
+  const end = new Date(endStr + 'T00:00:00');
+  while (d <= end) {
+    dates.push(d.toISOString().slice(0,10));
+    d.setDate(d.getDate() + 1);
+  }
+  return dates;
+}
+
+function timeToMinutes(t) {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+async function getRecordsForRange(startStr, endStr) {
+  const dates = dateRange(startStr, endStr);
+  let all = [];
+  for (const d of dates) {
+    const recs = await getRecords(d);
+    recs.forEach(r => all.push({ ...r, date: d }));
+  }
+  return all;
+}
+
+function getExpectedForDate(dateStr) {
+  const dow = new Date(dateStr + 'T00:00:00').getDay(); // 0=Pazar, 6=Cumartesi
+  if (dow === 0) return null; // Pazar - kapalı
+  if (dow === 6) return { start: settings.saturdayStart || '09:00', end: settings.saturdayEnd || '14:00' };
+  return { start: settings.expectedStart || '09:00', end: settings.expectedEnd || '18:00' };
+}
+
+function computeReport(records) {
+  const byName = {};
+
+  records.forEach(r => {
+    if (!byName[r.name]) byName[r.name] = { days: new Set(), totalMinutes: 0, lateCount: 0, earlyLeaveCount: 0, missingCount: 0, assumedCheckoutCount: 0, byDate: {} };
+    const entry = byName[r.name];
+    entry.days.add(r.date);
+    if (!entry.byDate[r.date]) entry.byDate[r.date] = [];
+    entry.byDate[r.date].push(r);
+    if (r.flag === 'missing_giris') entry.missingCount++;
+
+    const exp = getExpectedForDate(r.date);
+    if (exp) {
+      if (r.type !== 'cikis' && timeToMinutes(r.time) > timeToMinutes(exp.start)) entry.lateCount++;
+      if (r.type === 'cikis' && timeToMinutes(r.time) < timeToMinutes(exp.end)) entry.earlyLeaveCount++;
+    }
+  });
+
+  Object.values(byName).forEach(entry => {
+    Object.keys(entry.byDate).forEach(dateStr => {
+      const dayRecs = entry.byDate[dateStr];
+      const sorted = dayRecs.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+      const exp = getExpectedForDate(dateStr);
+      let openGiris = null;
+      sorted.forEach(r => {
+        if (r.type !== 'cikis') {
+          openGiris = r;
+        } else if (openGiris) {
+          entry.totalMinutes += (timeToMinutes(r.time) - timeToMinutes(openGiris.time));
+          openGiris = null;
+        }
+      });
+      // Gün sonunda hâlâ kapatılmamış bir giriş varsa, o günün beklenen mesai bitişinde çıkmış say
+      if (openGiris && exp) {
+        const assumedEnd = timeToMinutes(exp.end);
+        const diff = assumedEnd - timeToMinutes(openGiris.time);
+        entry.totalMinutes += Math.max(0, diff);
+        entry.assumedCheckoutCount++;
+      }
+    });
+  });
+
+  return byName;
+}
+
+function minutesToHM(mins) {
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  return `${h}sa ${m}dk`;
+}
+
+let lastReport = null;
+let lastReportRange = null;
+
+async function runReport() {
+  const start = document.getElementById('reportStart').value;
+  const end = document.getElementById('reportEnd').value;
+  const statusEl = document.getElementById('reportStatus');
+  const resultEl = document.getElementById('reportResult');
+
+  if (!start || !end || start > end) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Geçerli bir tarih aralığı seçin (başlangıç bitişten önce olmalı).';
+    return;
+  }
+  statusEl.className = 'status-msg status-loading';
+  statusEl.textContent = 'Rapor hazırlanıyor...';
+
+  const records = await getRecordsForRange(start, end);
+  const report = computeReport(records);
+  lastReport = report;
+  lastReportRange = { start, end };
+
+  const names = Object.keys(report).sort();
+  if (!names.length) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Bu tarih aralığında kayıt bulunamadı.';
+    resultEl.innerHTML = '';
+    return;
+  }
+  statusEl.style.display = 'none';
+
+  const rows = names.map(name => {
+    const e = report[name];
+    const missingHtml = e.missingCount ? `<span style="color:var(--danger)">${e.missingCount}</span>` : '0';
+    const assumedHtml = e.assumedCheckoutCount ? `<span style="color:var(--text-muted)">${e.assumedCheckoutCount}</span>` : '0';
+    return `<tr>
+      <td>${name}</td>
+      <td>${e.days.size}</td>
+      <td>${minutesToHM(e.totalMinutes)}</td>
+      <td>${e.lateCount || 0}</td>
+      <td>${e.earlyLeaveCount || 0}</td>
+      <td>${missingHtml}</td>
+      <td>${assumedHtml}</td>
+    </tr>`;
+  }).join('');
+
+  resultEl.innerHTML = `
+    <table>
+      <tr><th>Personel</th><th>Gün</th><th>Toplam Süre</th><th>Geç</th><th>Erken</th><th>Eksik</th><th>Tahmini</th></tr>
+      ${rows}
+    </table>
+    <p class="empty-note" style="text-align:left;margin-top:8px">"Tahmini" = çıkış unutulup mesai bitişinde (hafta içi ${settings.expectedEnd || '18:00'}, Cumartesi ${settings.saturdayEnd || '14:00'}) çıkmış varsayılan gün sayısı. Pazar günleri geç/erken hesabına dahil edilmez.</p>
+    <div class="row-2" style="margin-top:10px">
+      <button class="btn btn-secondary btn-small" onclick="downloadSummaryCSV()">⬇️ Özet CSV İndir</button>
+      <button class="btn btn-secondary btn-small" onclick="downloadRawCSV()">⬇️ Ham Kayıtlar CSV İndir</button>
+    </div>
+  `;
+}
+
+function csvEscape(val) {
+  const s = String(val ?? '');
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function triggerCSVDownload(filename, rows) {
+  const csv = rows.map(row => row.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function downloadSummaryCSV() {
+  if (!lastReport) return;
+  const rows = [['Personel', 'Gün Sayısı', 'Toplam Dakika', 'Toplam Süre', 'Geç Geliş', 'Erken Çıkış', 'Eksik Kayıt', 'Tahmini Kapanış']];
+  Object.keys(lastReport).sort().forEach(name => {
+    const e = lastReport[name];
+    rows.push([name, e.days.size, Math.round(e.totalMinutes), minutesToHM(e.totalMinutes), e.lateCount || 0, e.earlyLeaveCount || 0, e.missingCount || 0, e.assumedCheckoutCount || 0]);
+  });
+  triggerCSVDownload(`ozet_${lastReportRange.start}_${lastReportRange.end}.csv`, rows);
+}
+
+async function downloadRawCSV() {
+  if (!lastReportRange) return;
+  const records = await getRecordsForRange(lastReportRange.start, lastReportRange.end);
+  const rows = [['Tarih', 'Personel', 'Tür', 'Saat', 'Uyarı']];
+  records.sort((a,b) => a.timestamp.localeCompare(b.timestamp)).forEach(r => {
+    rows.push([r.date, r.name, r.type === 'cikis' ? 'Çıkış' : 'Giriş', r.time, r.flag === 'missing_giris' ? 'Giriş kaydı eksik' : '']);
+  });
+  triggerCSVDownload(`kayitlar_${lastReportRange.start}_${lastReportRange.end}.csv`, rows);
+}
+
+(async function init() {
+  await loadSettings();
+  renderCheckin();
+})();
+</script>
+
+</body>
+</html>
