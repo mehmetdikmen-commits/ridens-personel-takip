@@ -536,8 +536,10 @@ async function renderAdmin() {
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Gün sonunda gelmeyen biri için o günü, ya da planlı bir izin için ileri bir tarihi girebilirsiniz — ikisi de aynı formdan.</p>
       <label>Personel</label>
       <select id="leaveStaffSelect">${(settings.staff || []).map(s => `<option value="${s}">${s}</option>`).join('')}</select>
-      <label style="margin-top:8px">Tarih</label>
+      <label style="margin-top:8px">Başlangıç Tarihi</label>
       <input id="leaveDateInput" type="date" value="${todayStr}" />
+      <label style="margin-top:8px">Bitiş Tarihi <span style="color:var(--text-muted);font-weight:400">(çok günlük izin için, tek günse aynı bırakın)</span></label>
+      <input id="leaveDateEndInput" type="date" value="${todayStr}" />
       <label style="margin-top:8px">İzin Türü</label>
       <select id="leaveTypeSelect">
         <option value="hastalik">Hastalık</option>
@@ -550,20 +552,20 @@ async function renderAdmin() {
       <div class="status-msg" id="leaveStatus"></div>
 
       ${(() => {
-        const upcoming = leaves.filter(l => l.date >= todayStr).sort((a,b) => a.date.localeCompare(b.date));
-        if (!upcoming.length) return '';
+        const upcomingGroups = groupLeaveEntries(leaves.filter(l => l.date >= todayStr)).sort((a,b) => a.startDate.localeCompare(b.startDate));
+        if (!upcomingGroups.length) return '';
         return `
           <h2 style="margin-top:18px">📅 Yaklaşan Planlı İzinler</h2>
           <div style="overflow-x:auto">
           <table>
             <tr><th>Tarih</th><th>Personel</th><th>Tür</th><th>Not</th><th></th></tr>
-            ${upcoming.map(l => `
-              <tr style="${l.date === todayStr ? 'background:#fff8e6' : ''}">
-                <td>${l.date}${l.date === todayStr ? ' <span style="color:var(--text-muted);font-size:11px">(bugün)</span>' : ''}</td>
-                <td>${l.name}</td>
-                <td><span style="color:${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].color : 'inherit'}">${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].label : l.type}</span></td>
-                <td>${l.note || ''}</td>
-                <td><button onclick="deleteLeaveEntry('${l.id}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
+            ${upcomingGroups.map(g => `
+              <tr style="${g.startDate === todayStr ? 'background:#fff8e6' : ''}">
+                <td>${g.startDate === g.endDate ? g.startDate : g.startDate + ' → ' + g.endDate}${g.startDate === todayStr ? ' <span style="color:var(--text-muted);font-size:11px">(bugün)</span>' : ''}</td>
+                <td>${g.name}</td>
+                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span></td>
+                <td>${g.note || ''}</td>
+                <td><button onclick="deleteLeaveGroup('${g.ids.join(',')}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
               </tr>
             `).join('')}
           </table>
@@ -577,13 +579,13 @@ async function renderAdmin() {
           <div style="overflow-x:auto">
           <table>
             <tr><th>Tarih</th><th>Personel</th><th>Tür</th><th>Not</th><th></th></tr>
-            ${leaves.slice().sort((a,b) => b.date.localeCompare(a.date)).map(l => `
+            ${groupLeaveEntries(leaves).sort((a,b) => b.startDate.localeCompare(a.startDate)).map(g => `
               <tr>
-                <td>${l.date}</td>
-                <td>${l.name}</td>
-                <td><span style="color:${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].color : 'inherit'}">${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].label : l.type}</span></td>
-                <td>${l.note || ''}</td>
-                <td><button onclick="deleteLeaveEntry('${l.id}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
+                <td>${g.startDate === g.endDate ? g.startDate : g.startDate + ' → ' + g.endDate}</td>
+                <td>${g.name}</td>
+                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span></td>
+                <td>${g.note || ''}</td>
+                <td><button onclick="deleteLeaveGroup('${g.ids.join(',')}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
               </tr>
             `).join('')}
           </table>
@@ -689,22 +691,36 @@ async function removeStaff(name) {
 
 async function submitLeaveEntry() {
   const name = document.getElementById('leaveStaffSelect').value;
-  const date = document.getElementById('leaveDateInput').value;
+  const startDate = document.getElementById('leaveDateInput').value;
+  const endDate = document.getElementById('leaveDateEndInput').value || startDate;
   const type = document.getElementById('leaveTypeSelect').value;
   const note = document.getElementById('leaveNoteInput').value.trim();
   const statusEl = document.getElementById('leaveStatus');
 
-  if (!name || !date) {
+  if (!name || !startDate) {
     statusEl.className = 'status-msg status-error';
     statusEl.textContent = 'Personel ve tarih seçin.';
+    return;
+  }
+  if (endDate < startDate) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Bitiş tarihi, başlangıçtan önce olamaz.';
     return;
   }
   statusEl.className = 'status-msg status-loading';
   statusEl.textContent = 'Kaydediliyor...';
   try {
-    await addLeaveEntry({ name, date, type, note });
+    const dates = dateRange(startDate, endDate);
+    const groupId = 'g' + Date.now() + Math.random().toString(36).slice(2,7);
+    const leaves = await getLeaves();
+    dates.forEach(d => {
+      leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), groupId, name, date: d, type, note });
+    });
+    await saveLeaves(leaves);
     statusEl.className = 'status-msg status-success';
-    statusEl.textContent = `✅ ${name} — ${date} için ${LEAVE_TYPES[type].label} kaydedildi.`;
+    statusEl.textContent = dates.length === 1
+      ? `✅ ${name} — ${startDate} için ${LEAVE_TYPES[type].label} kaydedildi.`
+      : `✅ ${name} — ${startDate} → ${endDate} (${dates.length} gün) için ${LEAVE_TYPES[type].label} kaydedildi.`;
     renderAdmin();
   } catch (e) {
     statusEl.className = 'status-msg status-error';
@@ -715,6 +731,36 @@ async function submitLeaveEntry() {
 async function deleteLeaveEntry(id) {
   await removeLeaveEntry(id);
   renderAdmin();
+}
+
+async function deleteLeaveGroup(idsCsv) {
+  const ids = idsCsv.split(',');
+  const leaves = await getLeaves();
+  const filtered = leaves.filter(l => !ids.includes(l.id));
+  await saveLeaves(filtered);
+  renderAdmin();
+}
+
+// Aynı kişi + tür + not'a sahip, ardışık günleri tek bir aralık satırında göstermek için grupla.
+// Eski (groupId'siz) kayıtlar da tek günlük grup olarak ele alınır.
+function groupLeaveEntries(entries) {
+  const byBucket = {};
+  entries.forEach(l => {
+    const key = l.groupId || l.id;
+    if (!byBucket[key]) byBucket[key] = [];
+    byBucket[key].push(l);
+  });
+  return Object.values(byBucket).map(group => {
+    const sorted = group.slice().sort((a,b) => a.date.localeCompare(b.date));
+    return {
+      ids: sorted.map(l => l.id),
+      name: sorted[0].name,
+      type: sorted[0].type,
+      note: sorted[0].note,
+      startDate: sorted[0].date,
+      endDate: sorted[sorted.length - 1].date
+    };
+  });
 }
 
 function renderRecordsTable(records) {
