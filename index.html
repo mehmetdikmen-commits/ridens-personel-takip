@@ -352,8 +352,32 @@ function haversine(lat1, lon1, lat2, lon2) {
 
 let selectedStaff = null;
 
+// --- Cihaz kilidi: bir cihaz ilk kullanıldığı isme bağlanır, başka isim için kullanılamaz ---
+function getDeviceOwner() {
+  try { return localStorage.getItem('ridens_device_owner'); } catch (e) { return null; }
+}
+function setDeviceOwner(name) {
+  try { localStorage.setItem('ridens_device_owner', name); } catch (e) { /* yoksay */ }
+}
+function clearDeviceOwner() {
+  try { localStorage.removeItem('ridens_device_owner'); } catch (e) { /* yoksay */ }
+}
+
+function resetDeviceOwnerPrompt() {
+  const pin = prompt('Bu cihazın kaydını sıfırlamak için Yönetim PIN kodunu girin:');
+  if (pin === null) return;
+  if (settings.adminPin && pin === settings.adminPin) {
+    clearDeviceOwner();
+    alert('Cihaz kaydı sıfırlandı. Artık farklı bir isimle kullanılabilir.');
+    renderCheckin();
+  } else {
+    alert('PIN hatalı.');
+  }
+}
+
 function renderCheckin() {
   const view = document.getElementById('checkinView');
+  const owner = getDeviceOwner();
   const nameButtons = (settings.staff || []).map(s => `
     <button class="name-btn ${s === selectedStaff ? 'selected' : ''}" onclick="selectStaff('${s.replace(/'/g,"\\'")}')">${s}</button>
   `).join('');
@@ -361,6 +385,7 @@ function renderCheckin() {
   view.innerHTML = `
     <div class="card">
       <h2>Adınıza Dokunun</h2>
+      ${owner ? `<p class="empty-note" style="text-align:left;margin:0 0 10px">📱 Bu cihaz <strong>${owner}</strong> adına kayıtlı. <span onclick="resetDeviceOwnerPrompt()" style="color:var(--primary);text-decoration:underline;cursor:pointer">Yanlışsa buraya dokunun</span> (yönetici PIN'i gerekir).</p>` : ''}
       ${settings.staff && settings.staff.length ? `
         <div class="name-grid">${nameButtons}</div>
         <div class="status-msg" id="staffStatus" style="display:${selectedStaff ? 'block' : 'none'};background:#eef3f6;color:var(--text-muted)"></div>
@@ -411,6 +436,14 @@ async function doCheck(type) {
   const statusEl = document.getElementById('checkinStatus');
   const name = selectedStaff;
   const label = type === 'giris' ? 'Giriş' : 'Çıkış';
+
+  const owner = getDeviceOwner();
+  if (owner && owner !== name) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = `⚠️ Bu cihaz "${owner}" adına kayıtlı, "${name}" için kullanılamaz. Kendi telefonunuzu kullanın, ya da yanlışsa yukarıdaki bağlantıdan yönetici PIN'i ile sıfırlatın.`;
+    return;
+  }
+
   statusEl.className = 'status-msg status-loading';
   statusEl.textContent = 'Konum kontrol ediliyor...';
 
@@ -447,6 +480,7 @@ async function doCheck(type) {
     };
     try {
       await addRecord(now.toISOString().slice(0,10), record);
+      if (!getDeviceOwner()) setDeviceOwner(name);
       if (missingGiris) {
         statusEl.className = 'status-msg status-error';
         statusEl.textContent = `⚠️ ${name} — Çıkış kaydedildi (${record.time}) ama bugün için giriş kaydınız görünmüyor. Yöneticinize bildirin.`;
