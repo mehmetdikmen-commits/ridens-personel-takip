@@ -363,11 +363,37 @@ function clearDeviceOwner() {
   try { localStorage.removeItem('ridens_device_owner'); } catch (e) { /* yoksay */ }
 }
 
+// Kilitlenme/sıfırlanma olaylarını Firebase'e de kaydet ki Yönetim panelinden görülebilsin
+async function logDeviceEvent(type, name) {
+  try {
+    const now = new Date();
+    const r = await kvGet('device-binding-log');
+    const log = (r && r.value) ? JSON.parse(r.value) : [];
+    log.push({
+      id: Date.now() + '-' + Math.random().toString(36).slice(2,7),
+      type, // 'bind' | 'reset'
+      name,
+      date: now.toISOString().slice(0,10),
+      time: now.toTimeString().slice(0,5)
+    });
+    await kvSet('device-binding-log', JSON.stringify(log));
+  } catch (e) { /* günlük tutulamazsa sessiz geç, ana akışı bozma */ }
+}
+
+async function getDeviceEventLog() {
+  try {
+    const r = await kvGet('device-binding-log');
+    return (r && r.value) ? JSON.parse(r.value) : [];
+  } catch (e) { return []; }
+}
+
 function resetDeviceOwnerPrompt() {
   const pin = prompt('Bu cihazın kaydını sıfırlamak için Yönetim PIN kodunu girin:');
   if (pin === null) return;
   if (settings.adminPin && pin === settings.adminPin) {
+    const previousOwner = getDeviceOwner();
     clearDeviceOwner();
+    logDeviceEvent('reset', previousOwner);
     alert('Cihaz kaydı sıfırlandı. Artık farklı bir isimle kullanılabilir.');
     renderCheckin();
   } else {
@@ -480,7 +506,7 @@ async function doCheck(type) {
     };
     try {
       await addRecord(now.toISOString().slice(0,10), record);
-      if (!getDeviceOwner()) setDeviceOwner(name);
+      if (!getDeviceOwner()) { setDeviceOwner(name); logDeviceEvent('bind', name); }
       if (missingGiris) {
         statusEl.className = 'status-msg status-error';
         statusEl.textContent = `⚠️ ${name} — Çıkış kaydedildi (${record.time}) ama bugün için giriş kaydınız görünmüyor. Yöneticinize bildirin.`;
@@ -510,6 +536,7 @@ async function renderAdmin() {
   const todayStr = new Date().toISOString().slice(0,10);
   const records = await getRecords(todayStr);
   const leaves = await getLeaves();
+  const deviceLog = await getDeviceEventLog();
 
   view.innerHTML = `
     ${settings.adminPin ? `<button class="btn btn-secondary btn-small" style="margin-bottom:10px" onclick="lockAdmin()">🔒 Yönetimi Kilitle</button>` : ''}
@@ -626,6 +653,28 @@ async function renderAdmin() {
           </div>
         ` : '<p class="empty-note">Henüz izin kaydı yok</p>'}
       </div>
+    </div>
+
+    <div class="card">
+      <h2>📱 Cihaz Kilitlenme Kayıtları</h2>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Bir telefon ilk kez kullanıldığında hangi isme bağlandığı, ve yönetici PIN'i ile ne zaman sıfırlandığı burada listelenir.</p>
+      ${deviceLog.length ? `
+        <div style="overflow-x:auto">
+        <table>
+          <tr><th>Tarih</th><th>Saat</th><th>Personel</th><th>Olay</th></tr>
+          ${deviceLog.slice().sort((a,b) => (b.date + b.time).localeCompare(a.date + a.time)).map(ev => `
+            <tr>
+              <td>${ev.date}</td>
+              <td>${ev.time}</td>
+              <td>${ev.name || '—'}</td>
+              <td>${ev.type === 'reset'
+                ? '<span style="color:var(--text-muted)">↺ Sıfırlandı</span>'
+                : '<span style="color:var(--success)">🔒 Yeni kilitlendi</span>'}</td>
+            </tr>
+          `).join('')}
+        </table>
+        </div>
+      ` : '<p class="empty-note">Henüz hiçbir cihaz kilitlenmedi.</p>'}
     </div>
 
     <div class="card">
