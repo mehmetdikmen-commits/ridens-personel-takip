@@ -293,9 +293,19 @@ async function saveSettings() {
   await kvSet('clinic-settings', JSON.stringify(settings));
 }
 
-function todayKey(d) {
+// UTC yerine YEREL tarihi (Türkiye saatine göre) YYYY-MM-DD formatında döndürür.
+// toISOString() UTC kullanır; Türkiye UTC+3 olduğu için gece yarısı-03:00 arasında
+// bir gün öncesini "bugün" sanma hatasına yol açar. Bu fonksiyon o hatayı önler.
+function localDateStr(d) {
   const dt = d || new Date();
-  return 'records:' + dt.toISOString().slice(0,10);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function todayKey(d) {
+  return 'records:' + localDateStr(d);
 }
 
 async function getRecords(dateStr) {
@@ -373,7 +383,7 @@ async function logDeviceEvent(type, name) {
       id: Date.now() + '-' + Math.random().toString(36).slice(2,7),
       type, // 'bind' | 'reset'
       name,
-      date: now.toISOString().slice(0,10),
+      date: localDateStr(now),
       time: now.toTimeString().slice(0,5)
     });
     await kvSet('device-binding-log', JSON.stringify(log));
@@ -433,7 +443,7 @@ function selectStaff(name) {
 }
 
 async function getTodayStatus(name) {
-  const todayStr = new Date().toISOString().slice(0,10);
+  const todayStr = localDateStr();
   const records = await getRecords(todayStr);
   const mine = records.filter(r => r.name === name);
   const lastGiris = mine.filter(r => r.type !== 'cikis').slice(-1)[0];
@@ -505,7 +515,7 @@ async function doCheck(type) {
       flag: missingGiris ? 'missing_giris' : null
     };
     try {
-      await addRecord(now.toISOString().slice(0,10), record);
+      await addRecord(localDateStr(now), record);
       if (!getDeviceOwner()) { setDeviceOwner(name); logDeviceEvent('bind', name); }
       if (missingGiris) {
         statusEl.className = 'status-msg status-error';
@@ -533,7 +543,7 @@ function lockAdmin() {
 
 async function renderAdmin() {
   const view = document.getElementById('adminView');
-  const todayStr = new Date().toISOString().slice(0,10);
+  const todayStr = localDateStr();
   const records = await getRecords(todayStr);
   const leaves = await getLeaves();
   const deviceLog = await getDeviceEventLog();
@@ -885,7 +895,7 @@ function dateRange(startStr, endStr) {
   let d = new Date(startStr + 'T00:00:00');
   const end = new Date(endStr + 'T00:00:00');
   while (d <= end) {
-    dates.push(d.toISOString().slice(0,10));
+    dates.push(localDateStr(d));
     d.setDate(d.getDate() + 1);
   }
   return dates;
