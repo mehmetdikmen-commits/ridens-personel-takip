@@ -583,11 +583,11 @@ async function renderAdmin() {
 
     <div class="card">
       <h2>Personel Listesi</h2>
-      <p class="empty-note" style="text-align:left;margin:0 0 10px">Sıralama, isim ızgarasında göründükleri sıradır. Ok butonlarıyla değiştirebilirsiniz.</p>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Sıralama, isim ızgarasında göründükleri sıradır. Ok butonlarıyla değiştirebilirsiniz. Bir isme dokunarak izin/devamsızlık özetini görebilirsiniz.</p>
       <div id="staffList">
         ${(settings.staff || []).map((s, i) => `
           <div class="staff-chip">
-            <span>${s}</span>
+            <span style="cursor:pointer;color:var(--primary);text-decoration:underline" onclick="toggleStaffDetail('${s.replace(/'/g,"\\'")}')">${s}</span>
             <span style="display:flex;gap:10px;align-items:center">
               <button class="arrow-btn" onclick="moveStaff(${i}, -1)" ${i === 0 ? 'disabled style="opacity:0.3"' : ''}>↑</button>
               <button class="arrow-btn" onclick="moveStaff(${i}, 1)" ${i === (settings.staff.length - 1) ? 'disabled style="opacity:0.3"' : ''}>↓</button>
@@ -600,6 +600,7 @@ async function renderAdmin() {
         <input id="newStaffInput" placeholder="Yeni personel adı" style="margin-bottom:0" />
         <button class="btn btn-primary btn-small" style="margin-top:0" onclick="addStaff()">Ekle</button>
       </div>
+      <div id="staffDetailPanel"></div>
     </div>
 
     <div class="card">
@@ -787,6 +788,94 @@ async function removeStaff(name) {
   await saveSettings();
   renderAdmin();
 }
+
+let openStaffDetailName = null;
+
+async function toggleStaffDetail(name) {
+  const panel = document.getElementById('staffDetailPanel');
+  if (openStaffDetailName === name) {
+    // Zaten açıksa kapat
+    openStaffDetailName = null;
+    panel.innerHTML = '';
+    return;
+  }
+  openStaffDetailName = name;
+  panel.innerHTML = `<p class="empty-note" style="margin-top:10px">${name} için özet hazırlanıyor...</p>`;
+
+  const todayStr = localDateStr();
+  const yearStart = todayStr.slice(0,4) + '-01-01';
+  const dates = dateRange(yearStart, todayStr);
+  const records = await getRecordsForRange(yearStart, todayStr);
+  const allLeaves = await getLeaves();
+  const report = computeReport(records, allLeaves, dates, [name]);
+  const r = report[name];
+
+  const absentDays = r.days.filter(d => d.status === 'absent');
+  const leaveDays = r.days.filter(d => d.status === 'leave' || d.halfDayLeave);
+
+  const leaveRowsHtml = leaveDays.map(d => {
+    if (d.status === 'leave') {
+      const lt = LEAVE_TYPES[d.leaveType] || { label: d.leaveType, color: 'var(--text-muted)' };
+      return `<tr><td>${d.date}</td><td><span style="color:${lt.color}">${lt.label}</span>${portionLabel(d.leavePortion)}</td><td>${d.leaveNote || ''}</td></tr>`;
+    }
+    const lt = LEAVE_TYPES[d.halfDayLeave.type] || { label: d.halfDayLeave.type, color: 'var(--text-muted)' };
+    return `<tr><td>${d.date}</td><td><span style="color:${lt.color}">${lt.label}</span>${portionLabel(d.halfDayLeave.portion)}</td><td>${d.halfDayLeave.note || ''}</td></tr>`;
+  }).join('');
+
+  const absentRowsHtml = absentDays.map(d => `<tr><td>${d.date}</td><td colspan="2"><button class="btn btn-secondary btn-small" style="margin:0;width:auto" onclick="quickAddLeave('${name.replace(/'/g,"\\'")}','${d.date}')">+ İzin Ekle</button></td></tr>`).join('');
+
+  panel.innerHTML = `
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <h2 style="margin:0 0 4px">${name} — ${yearStart.slice(0,4)} Özeti</h2>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">${yearStart} → ${todayStr} arası (yıl başından bugüne)</p>
+      <div class="row-2" style="margin-bottom:10px">
+        <div style="text-align:center;background:#f7fafc;border-radius:8px;padding:8px">
+          <div style="font-size:20px;font-weight:700;color:var(--primary)">${r.leaveCounts.yillik || 0}</div>
+          <div style="font-size:11px;color:var(--text-muted)">Yıllık İzin (gün)</div>
+        </div>
+        <div style="text-align:center;background:#f7fafc;border-radius:8px;padding:8px">
+          <div style="font-size:20px;font-weight:700;color:var(--danger)">${r.leaveCounts.hastalik || 0}</div>
+          <div style="font-size:11px;color:var(--text-muted)">Hastalık (gün)</div>
+        </div>
+      </div>
+      <div class="row-2" style="margin-bottom:10px">
+        <div style="text-align:center;background:#f7fafc;border-radius:8px;padding:8px">
+          <div style="font-size:20px;font-weight:700;color:#b8860b">${r.leaveCounts.idari || 0}</div>
+          <div style="font-size:11px;color:var(--text-muted)">İdari İzin (gün)</div>
+        </div>
+        <div style="text-align:center;background:#f7fafc;border-radius:8px;padding:8px">
+          <div style="font-size:20px;font-weight:700;color:var(--danger)">${absentDays.length}</div>
+          <div style="font-size:11px;color:var(--text-muted)">Açıklanamayan</div>
+        </div>
+      </div>
+
+      <h2 style="margin:14px 0 6px;font-size:13px">İzin Günleri (${leaveDays.length})</h2>
+      ${leaveDays.length ? `<div style="overflow-x:auto"><table><tr><th>Tarih</th><th>Tür</th><th>Not</th></tr>${leaveRowsHtml}</table></div>` : '<p class="empty-note">Bu yıl için izin kaydı yok.</p>'}
+
+      <h2 style="margin:14px 0 6px;font-size:13px">Açıklanamayan Devamsızlık Günleri (${absentDays.length})</h2>
+      ${absentDays.length ? `<div style="overflow-x:auto"><table><tr><th>Tarih</th><th colspan="2"></th></tr>${absentRowsHtml}</table></div>` : '<p class="empty-note">Açıklanamayan devamsızlık yok. 🎉</p>'}
+
+      <button class="btn btn-secondary btn-small" style="margin-top:10px" onclick="toggleStaffDetail('${name.replace(/'/g,"\\'")}')">Kapat</button>
+    </div>
+  `;
+}
+
+function quickAddLeave(name, date) {
+  const sel = document.getElementById('leaveStaffSelect');
+  const startInput = document.getElementById('leaveDateInput');
+  const endInput = document.getElementById('leaveDateEndInput');
+  if (sel) sel.value = name;
+  if (startInput) startInput.value = date;
+  if (endInput) endInput.value = date;
+  const card = document.getElementById('leaveStaffSelect');
+  if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const statusEl = document.getElementById('leaveStatus');
+  if (statusEl) {
+    statusEl.className = 'status-msg status-loading';
+    statusEl.textContent = `"${name}" ve "${date}" dolduruldu — izin türünü seçip "İzin Kaydı Ekle"ye basın.`;
+  }
+}
+
 
 async function submitLeaveEntry() {
   const name = document.getElementById('leaveStaffSelect').value;
@@ -1142,7 +1231,7 @@ async function runReport() {
       return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:${lt.color}">📌 ${lt.label}</span>${portionLabel(d.leavePortion)}${d.leaveNote ? ` <span style="color:var(--text-muted);font-size:11px">(${d.leaveNote})</span>` : ''}</td></tr>`;
     }
     if (d.status === 'absent') {
-      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--danger)">⚠️ Açıklanamayan devamsızlık</span></td></tr>`;
+      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--danger)">⚠️ Açıklanamayan devamsızlık</span> <button class="btn btn-secondary btn-small" style="margin:0;width:auto;padding:4px 8px;font-size:11px" onclick="quickAddLeave('${d.name.replace(/'/g,"\\'")}','${d.date}')">+ İzin Ekle</button></td></tr>`;
     }
     let arrCell = d.arrivalTime
       ? `${d.arrivalTime} ${d.arrivalStatus ? `<span style="color:${statusColor(d.arrivalStatus)};font-size:11px">(${d.arrivalStatus}${d.arrivalDiff ? ' ' + d.arrivalDiff + 'dk' : ''})</span>` : ''}`
