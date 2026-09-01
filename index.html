@@ -617,6 +617,12 @@ async function renderAdmin() {
         <option value="idari">İdari İzin</option>
         <option value="yillik">Yıllık İzin</option>
       </select>
+      <label style="margin-top:8px">Süre</label>
+      <select id="leavePortionSelect">
+        <option value="full">Tüm Gün</option>
+        <option value="morning">Sadece Sabah (öğleden sonra çalıştı/çalışacak)</option>
+        <option value="afternoon">Sadece Öğleden Sonra (sabah çalıştı/çalışacak)</option>
+      </select>
       <label style="margin-top:8px">Not (isteğe bağlı)</label>
       <input id="leaveNoteInput" placeholder="Örn. rapor, düğün izni vb." />
       <button class="btn btn-primary" onclick="submitLeaveEntry()">İzin Kaydı Ekle</button>
@@ -634,7 +640,7 @@ async function renderAdmin() {
               <tr style="${g.startDate === todayStr ? 'background:#fff8e6' : ''}">
                 <td>${g.startDate === g.endDate ? g.startDate : g.startDate + ' → ' + g.endDate}${g.startDate === todayStr ? ' <span style="color:var(--text-muted);font-size:11px">(bugün)</span>' : ''}</td>
                 <td>${g.name}</td>
-                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span></td>
+                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span>${portionLabel(g.portion)}</td>
                 <td>${g.note || ''}</td>
                 <td><button onclick="deleteLeaveGroup('${g.ids.join(',')}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
               </tr>
@@ -654,7 +660,7 @@ async function renderAdmin() {
               <tr>
                 <td>${g.startDate === g.endDate ? g.startDate : g.startDate + ' → ' + g.endDate}</td>
                 <td>${g.name}</td>
-                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span></td>
+                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span>${portionLabel(g.portion)}</td>
                 <td>${g.note || ''}</td>
                 <td><button onclick="deleteLeaveGroup('${g.ids.join(',')}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
               </tr>
@@ -787,6 +793,7 @@ async function submitLeaveEntry() {
   const startDate = document.getElementById('leaveDateInput').value;
   const endDate = document.getElementById('leaveDateEndInput').value || startDate;
   const type = document.getElementById('leaveTypeSelect').value;
+  const portion = document.getElementById('leavePortionSelect').value; // 'full' | 'morning' | 'afternoon'
   const note = document.getElementById('leaveNoteInput').value.trim();
   const statusEl = document.getElementById('leaveStatus');
 
@@ -807,13 +814,14 @@ async function submitLeaveEntry() {
     const groupId = 'g' + Date.now() + Math.random().toString(36).slice(2,7);
     const leaves = await getLeaves();
     dates.forEach(d => {
-      leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), groupId, name, date: d, type, note });
+      leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), groupId, name, date: d, type, portion, note });
     });
     await saveLeaves(leaves);
+    const portionLabel = portion === 'morning' ? ' (Sabah)' : portion === 'afternoon' ? ' (Öğleden Sonra)' : '';
     statusEl.className = 'status-msg status-success';
     statusEl.textContent = dates.length === 1
-      ? `✅ ${name} — ${startDate} için ${LEAVE_TYPES[type].label} kaydedildi.`
-      : `✅ ${name} — ${startDate} → ${endDate} (${dates.length} gün) için ${LEAVE_TYPES[type].label} kaydedildi.`;
+      ? `✅ ${name} — ${startDate} için ${LEAVE_TYPES[type].label}${portionLabel} kaydedildi.`
+      : `✅ ${name} — ${startDate} → ${endDate} (${dates.length} gün) için ${LEAVE_TYPES[type].label}${portionLabel} kaydedildi.`;
     renderAdmin();
   } catch (e) {
     statusEl.className = 'status-msg status-error';
@@ -849,11 +857,18 @@ function groupLeaveEntries(entries) {
       ids: sorted.map(l => l.id),
       name: sorted[0].name,
       type: sorted[0].type,
+      portion: sorted[0].portion || 'full',
       note: sorted[0].note,
       startDate: sorted[0].date,
       endDate: sorted[sorted.length - 1].date
     };
   });
+}
+
+function portionLabel(portion) {
+  if (portion === 'morning') return ' <span style="color:var(--text-muted);font-size:11px">(Sabah)</span>';
+  if (portion === 'afternoon') return ' <span style="color:var(--text-muted);font-size:11px">(Öğleden Sonra)</span>';
+  return '';
 }
 
 function renderRecordsTable(records) {
@@ -957,13 +972,14 @@ function computeReport(records, leaves, dateList, staffList) {
       if (!exp) return; // Pazar - kapalı, hesaba katılmaz
 
       const dayRecs = (dateGroups[dateStr] || []).slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+      const leave = leaveForDate(leaves, name, dateStr);
+      const isHalfDayLeave = leave && (leave.portion === 'morning' || leave.portion === 'afternoon');
 
       if (!dayRecs.length) {
         // O gün hiç giriş/çıkış kaydı yok: izinli mi, açıklanamayan devamsızlık mı?
-        const leave = leaveForDate(leaves, name, dateStr);
         if (leave) {
           leaveCounts[leave.type] = (leaveCounts[leave.type] || 0) + 1;
-          days.push({ date: dateStr, status: 'leave', leaveType: leave.type, leaveNote: leave.note || '' });
+          days.push({ date: dateStr, status: 'leave', leaveType: leave.type, leavePortion: leave.portion || 'full', leaveNote: leave.note || '' });
         } else {
           absentDays++;
           days.push({ date: dateStr, status: 'absent' });
@@ -1009,6 +1025,10 @@ function computeReport(records, leaves, dateList, staffList) {
 
       if (hasMissingFlag && !arrivalRec) missingCount++;
 
+      if (isHalfDayLeave) {
+        leaveCounts[leave.type] = (leaveCounts[leave.type] || 0) + 1;
+      }
+
       days.push({
         date: dateStr,
         status: 'present',
@@ -1018,7 +1038,8 @@ function computeReport(records, leaves, dateList, staffList) {
         departureStatus, departureDiff,
         assumed: assumedThisDay,
         missing: hasMissingFlag && !arrivalRec,
-        dayMinutes
+        dayMinutes,
+        halfDayLeave: isHalfDayLeave ? { type: leave.type, portion: leave.portion, note: leave.note || '' } : null
       });
     });
 
@@ -1118,17 +1139,25 @@ async function runReport() {
   const dailyTableRows = dailyRows.map(d => {
     if (d.status === 'leave') {
       const lt = LEAVE_TYPES[d.leaveType] || { label: d.leaveType, color: 'var(--text-muted)' };
-      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:${lt.color}">📌 ${lt.label}</span>${d.leaveNote ? ` <span style="color:var(--text-muted);font-size:11px">(${d.leaveNote})</span>` : ''}</td></tr>`;
+      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:${lt.color}">📌 ${lt.label}</span>${portionLabel(d.leavePortion)}${d.leaveNote ? ` <span style="color:var(--text-muted);font-size:11px">(${d.leaveNote})</span>` : ''}</td></tr>`;
     }
     if (d.status === 'absent') {
       return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--danger)">⚠️ Açıklanamayan devamsızlık</span></td></tr>`;
     }
-    const arrCell = d.arrivalTime
+    let arrCell = d.arrivalTime
       ? `${d.arrivalTime} ${d.arrivalStatus ? `<span style="color:${statusColor(d.arrivalStatus)};font-size:11px">(${d.arrivalStatus}${d.arrivalDiff ? ' ' + d.arrivalDiff + 'dk' : ''})</span>` : ''}`
       : (d.missing ? '<span style="color:var(--danger)">⚠️ yok</span>' : '—');
-    const depCell = d.departureTime
+    let depCell = d.departureTime
       ? `${d.departureTime} ${d.departureStatus ? `<span style="color:${depStatusColor(d.departureStatus)};font-size:11px">(${d.departureStatus}${d.departureDiff ? ' ' + d.departureDiff + 'dk' : ''})</span>` : ''}`
       : (d.assumed ? `<span style="color:var(--text-muted)">${getExpectedForDate(d.date) ? getExpectedForDate(d.date).end : ''} (tahmini)</span>` : '—');
+    // Yarım gün izin varsa, izinli olan yarıyı katılım hücresinin yerine yazıp birleştir
+    if (d.halfDayLeave) {
+      const lt = LEAVE_TYPES[d.halfDayLeave.type] || { label: d.halfDayLeave.type, color: 'var(--text-muted)' };
+      const leaveNoteHtml = d.halfDayLeave.note ? ` <span style="color:var(--text-muted);font-size:11px">(${d.halfDayLeave.note})</span>` : '';
+      const leaveHtml = `<span style="color:${lt.color}">📌 ${lt.label}</span>${leaveNoteHtml}`;
+      if (d.halfDayLeave.portion === 'morning') arrCell = leaveHtml; // sabah izinli, giriş hücresi yerine
+      else if (d.halfDayLeave.portion === 'afternoon') depCell = leaveHtml; // öğleden sonra izinli, çıkış hücresi yerine
+    }
     return `<tr><td>${d.date}</td><td>${d.name}</td><td>${arrCell}</td><td>${depCell}</td></tr>`;
   }).join('');
 
@@ -1217,16 +1246,24 @@ function downloadDailyCSV() {
   allDays.forEach(d => {
     if (d.status === 'leave') {
       const lt = LEAVE_TYPES[d.leaveType] || { label: d.leaveType };
-      rows.push([d.date, d.name, lt.label, '', '', '', '', '', '', '', d.leaveNote || '']);
+      const portionTxt = d.leavePortion === 'morning' ? ' (Sabah)' : d.leavePortion === 'afternoon' ? ' (Öğleden Sonra)' : '';
+      rows.push([d.date, d.name, lt.label + portionTxt, '', '', '', '', '', '', '', d.leaveNote || '']);
       return;
     }
     if (d.status === 'absent') {
       rows.push([d.date, d.name, 'Açıklanamayan devamsızlık', '', '', '', '', '', '', '', '']);
       return;
     }
-    const note = d.missing ? 'Giriş kaydı eksik' : (d.assumed ? 'Çıkış varsayıldı (unutulmuş)' : '');
+    let note = d.missing ? 'Giriş kaydı eksik' : (d.assumed ? 'Çıkış varsayıldı (unutulmuş)' : '');
+    let durum = 'Çalıştı';
+    if (d.halfDayLeave) {
+      const lt = LEAVE_TYPES[d.halfDayLeave.type] || { label: d.halfDayLeave.type };
+      const portionTxt = d.halfDayLeave.portion === 'morning' ? 'Sabah' : 'Öğleden Sonra';
+      durum = `Çalıştı + ${lt.label} (${portionTxt})`;
+      if (d.halfDayLeave.note) note = (note ? note + '; ' : '') + d.halfDayLeave.note;
+    }
     rows.push([
-      d.date, d.name, 'Çalıştı',
+      d.date, d.name, durum,
       d.arrivalTime || '', d.arrivalStatus || '', d.arrivalStatus ? d.arrivalDiff : '',
       d.departureTime || '', d.departureStatus || '', d.departureStatus ? d.departureDiff : '',
       Math.round(d.dayMinutes), note
