@@ -624,9 +624,9 @@ async function renderAdmin() {
       <label>Personel</label>
       <select id="leaveStaffSelect">${(settings.staff || []).map(s => `<option value="${s}">${s}</option>`).join('')}</select>
       <label style="margin-top:8px">Başlangıç Tarihi</label>
-      <input id="leaveDateInput" type="date" value="${todayStr}" />
+      <input id="leaveDateInput" type="date" value="${todayStr}" onchange="updateLeavePortionAvailability()" />
       <label style="margin-top:8px">Bitiş Tarihi <span style="color:var(--text-muted);font-weight:400">(çok günlük izin için, tek günse aynı bırakın)</span></label>
-      <input id="leaveDateEndInput" type="date" value="${todayStr}" />
+      <input id="leaveDateEndInput" type="date" value="${todayStr}" onchange="updateLeavePortionAvailability()" />
       <label style="margin-top:8px">İzin Türü</label>
       <select id="leaveTypeSelect">
         <option value="hastalik">Hastalık</option>
@@ -639,6 +639,7 @@ async function renderAdmin() {
         <option value="morning">Sadece Sabah (öğleden sonra çalıştı/çalışacak)</option>
         <option value="afternoon">Sadece Öğleden Sonra (sabah çalıştı/çalışacak)</option>
       </select>
+      <p class="empty-note" id="leavePortionNote" style="display:none;text-align:left;margin:-6px 0 10px">Cumartesi günleri klinik zaten yarım gün açık olduğu için yarım gün izin seçeneği yok — otomatik "Tüm Gün" olarak kaydedilir.</p>
       <label style="margin-top:8px">Not (isteğe bağlı)</label>
       <input id="leaveNoteInput" placeholder="Örn. rapor, düğün izni vb." />
       <button class="btn btn-primary" onclick="submitLeaveEntry()">İzin Kaydı Ekle</button>
@@ -732,6 +733,7 @@ async function renderAdmin() {
       <div id="reportResult" style="margin-top:12px"></div>
     </div>
   `;
+  updateLeavePortionAvailability();
 }
 
 function setClinicLocation() {
@@ -913,6 +915,26 @@ function quickAddLeave(name, date) {
 }
 
 
+function updateLeavePortionAvailability() {
+  const startInput = document.getElementById('leaveDateInput');
+  const portionSelect = document.getElementById('leavePortionSelect');
+  const note = document.getElementById('leavePortionNote');
+  if (!startInput || !portionSelect) return;
+  const saturday = startInput.value && isSaturday(startInput.value);
+  const morningOpt = portionSelect.querySelector('option[value="morning"]');
+  const afternoonOpt = portionSelect.querySelector('option[value="afternoon"]');
+  if (saturday) {
+    if (morningOpt) morningOpt.disabled = true;
+    if (afternoonOpt) afternoonOpt.disabled = true;
+    portionSelect.value = 'full';
+    if (note) note.style.display = 'block';
+  } else {
+    if (morningOpt) morningOpt.disabled = false;
+    if (afternoonOpt) afternoonOpt.disabled = false;
+    if (note) note.style.display = 'none';
+  }
+}
+
 async function submitLeaveEntry() {
   const name = document.getElementById('leaveStaffSelect').value;
   const startDate = document.getElementById('leaveDateInput').value;
@@ -939,7 +961,8 @@ async function submitLeaveEntry() {
     const groupId = 'g' + Date.now() + Math.random().toString(36).slice(2,7);
     const leaves = await getLeaves();
     dates.forEach(d => {
-      leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), groupId, name, date: d, type, portion, note });
+      const dayPortion = isSaturday(d) ? 'full' : portion; // Cumartesi'de yarım gün izin diye bir şey yok
+      leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), groupId, name, date: d, type, portion: dayPortion, note });
     });
     await saveLeaves(leaves);
     const portionLabel = portion === 'morning' ? ' (Sabah)' : portion === 'afternoon' ? ' (Öğleden Sonra)' : '';
@@ -1069,6 +1092,10 @@ function getExpectedForDate(dateStr, name) {
   return base;
 }
 
+function isSaturday(dateStr) {
+  return new Date(dateStr + 'T00:00:00').getDay() === 6;
+}
+
 function leaveForDate(leaves, name, dateStr) {
   return leaves.find(l => l.name === name && l.date === dateStr) || null;
 }
@@ -1109,8 +1136,9 @@ function computeReport(records, leaves, dateList, staffList) {
       if (!dayRecs.length) {
         // O gün hiç giriş/çıkış kaydı yok: izinli mi, açıklanamayan devamsızlık mı?
         if (leave) {
-          leaveCounts[leave.type] = (leaveCounts[leave.type] || 0) + 1;
-          days.push({ date: dateStr, status: 'leave', leaveType: leave.type, leavePortion: leave.portion || 'full', leaveNote: leave.note || '' });
+          const dayValue = isSaturday(dateStr) ? 0.5 : 1;
+          leaveCounts[leave.type] = (leaveCounts[leave.type] || 0) + dayValue;
+          days.push({ date: dateStr, status: 'leave', leaveType: leave.type, leavePortion: leave.portion || 'full', leaveNote: leave.note || '', leaveDayValue: dayValue });
         } else {
           absentDays++;
           days.push({ date: dateStr, status: 'absent' });
@@ -1156,8 +1184,10 @@ function computeReport(records, leaves, dateList, staffList) {
 
       if (hasMissingFlag && !arrivalRec) missingCount++;
 
+      let halfDayValue = 0;
       if (isHalfDayLeave) {
-        leaveCounts[leave.type] = (leaveCounts[leave.type] || 0) + 1;
+        halfDayValue = 0.5;
+        leaveCounts[leave.type] = (leaveCounts[leave.type] || 0) + halfDayValue;
       }
 
       days.push({
@@ -1170,7 +1200,7 @@ function computeReport(records, leaves, dateList, staffList) {
         assumed: assumedThisDay,
         missing: hasMissingFlag && !arrivalRec,
         dayMinutes,
-        halfDayLeave: isHalfDayLeave ? { type: leave.type, portion: leave.portion, note: leave.note || '' } : null
+        halfDayLeave: isHalfDayLeave ? { type: leave.type, portion: leave.portion, note: leave.note || '', dayValue: halfDayValue } : null
       });
     });
 
