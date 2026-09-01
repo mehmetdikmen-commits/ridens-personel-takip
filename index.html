@@ -206,7 +206,7 @@
 </div>
 
 <script>
-let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", staff: ["Serpil Akpınar", "Yasemin Hazal Dedeağa", "Ezgi Erdenol", "Mehmet Dikmen", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Meral Kılıç", "Murat Dikmen", "Elif Nur Kasap", "İpek Naz Karasu", "Beyzanur Köşker", "Merve İkra Uzun"] };
+let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", staffStartOverrides: { "Ezgi Erdenol": "10:00", "Yasemin Hazal Dedeağa": "10:00", "Doruk Altıok": "10:00", "İpek Naz Karasu": "10:00", "Mehmet Dikmen": "10:00", "Murat Dikmen": "10:00" }, staff: ["Serpil Akpınar", "Yasemin Hazal Dedeağa", "Ezgi Erdenol", "Mehmet Dikmen", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Meral Kılıç", "Murat Dikmen", "Elif Nur Kasap", "İpek Naz Karasu", "Beyzanur Köşker", "Merve İkra Uzun"] };
 let currentTab = 'checkin';
 let adminUnlocked = false;
 
@@ -604,6 +604,21 @@ async function renderAdmin() {
     </div>
 
     <div class="card">
+      <h2>Kişiye Özel Başlangıç Saati</h2>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Bazı personelin (örn. doktorlar) mesaiye genel saatten farklı başladığı durumlar için. Boş bırakılan personel için genel saat (${settings.expectedStart || '09:00'} hafta içi, ${settings.saturdayStart || '09:00'} Cumartesi) geçerli olur. Bitiş saati herkes için aynı kalır.</p>
+      <div id="startOverridesList">
+        ${(settings.staff || []).map(s => `
+          <div class="row-2" style="align-items:center;margin-bottom:8px">
+            <label style="margin:0;font-weight:400;color:var(--text)">${s}</label>
+            <input type="time" class="start-override-input" data-name="${s.replace(/"/g,'&quot;')}" value="${(settings.staffStartOverrides && settings.staffStartOverrides[s]) || ''}" style="margin:0" />
+          </div>
+        `).join('')}
+      </div>
+      <button class="btn btn-primary" onclick="saveStartOverrides()">Başlangıç Saatlerini Kaydet</button>
+      <div class="status-msg" id="startOverridesStatus"></div>
+    </div>
+
+    <div class="card">
       <h2>İzin / Devamsızlık</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Gün sonunda gelmeyen biri için o günü, ya da planlı bir izin için ileri bir tarihi girebilirsiniz — ikisi de aynı formdan.</p>
       <label>Personel</label>
@@ -772,6 +787,27 @@ async function addStaff() {
   settings.staff.push(name);
   await saveSettings();
   renderAdmin();
+}
+
+async function saveStartOverrides() {
+  const statusEl = document.getElementById('startOverridesStatus');
+  const inputs = document.querySelectorAll('.start-override-input');
+  const overrides = {};
+  inputs.forEach(inp => {
+    const name = inp.dataset.name;
+    const val = inp.value.trim();
+    if (val) overrides[name] = val;
+  });
+  settings.staffStartOverrides = overrides;
+  try {
+    await saveSettings();
+    statusEl.className = 'status-msg status-success';
+    const count = Object.keys(overrides).length;
+    statusEl.textContent = count ? `✅ ${count} personel için özel başlangıç saati kaydedildi.` : '✅ Kaydedildi (özel saat yok, herkes genel saate tabi).';
+  } catch (e) {
+    statusEl.className = 'status-msg status-error';
+    statusEl.textContent = 'Kaydetme hatası: ' + (e && e.message ? e.message : 'bilinmeyen hata');
+  }
 }
 
 async function moveStaff(index, direction) {
@@ -1020,11 +1056,17 @@ async function getRecordsForRange(startStr, endStr) {
   return all;
 }
 
-function getExpectedForDate(dateStr) {
+function getExpectedForDate(dateStr, name) {
   const dow = new Date(dateStr + 'T00:00:00').getDay(); // 0=Pazar, 6=Cumartesi
   if (dow === 0) return null; // Pazar - kapalı
-  if (dow === 6) return { start: settings.saturdayStart || '09:00', end: settings.saturdayEnd || '14:00' };
-  return { start: settings.expectedStart || '09:00', end: settings.expectedEnd || '18:00' };
+  const base = dow === 6
+    ? { start: settings.saturdayStart || '09:00', end: settings.saturdayEnd || '14:00' }
+    : { start: settings.expectedStart || '09:00', end: settings.expectedEnd || '18:00' };
+  // Kişiye özel başlangıç saati (örn. doktorlar) varsa, o kişi için başlangıcı geçersiz kıl
+  if (name && settings.staffStartOverrides && settings.staffStartOverrides[name]) {
+    return { start: settings.staffStartOverrides[name], end: base.end };
+  }
+  return base;
 }
 
 function leaveForDate(leaves, name, dateStr) {
@@ -1057,7 +1099,7 @@ function computeReport(records, leaves, dateList, staffList) {
     const leaveCounts = { hastalik: 0, idari: 0, yillik: 0 };
 
     dateList.forEach(dateStr => {
-      const exp = getExpectedForDate(dateStr);
+      const exp = getExpectedForDate(dateStr, name);
       if (!exp) return; // Pazar - kapalı, hesaba katılmaz
 
       const dayRecs = (dateGroups[dateStr] || []).slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
