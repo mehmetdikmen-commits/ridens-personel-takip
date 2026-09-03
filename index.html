@@ -543,6 +543,7 @@ function lockAdmin() {
 
 async function renderAdmin() {
   const view = document.getElementById('adminView');
+  yearSummaryLoaded = false; // her yeniden çizimde yıl özeti tazelensin
   const todayStr = localDateStr();
   const records = await getRecords(todayStr);
   const leaves = await getLeaves();
@@ -550,7 +551,21 @@ async function renderAdmin() {
 
   view.innerHTML = `
     ${settings.adminPin ? `<button class="btn btn-secondary btn-small" style="margin-bottom:10px" onclick="lockAdmin()">🔒 Yönetimi Kilitle</button>` : ''}
-    <div class="card">
+    <div class="tabs" id="adminSubTabs" style="margin-bottom:14px">
+      <button class="tab-btn ${adminSubTab === 'gunluk' ? 'active' : ''}" onclick="showAdminSubTab('gunluk')">Günlük</button>
+      <button class="tab-btn ${adminSubTab === 'izinler' ? 'active' : ''}" onclick="showAdminSubTab('izinler')">İzinler</button>
+      <button class="tab-btn ${adminSubTab === 'raporlar' ? 'active' : ''}" onclick="showAdminSubTab('raporlar')">Raporlar</button>
+      <button class="tab-btn ${adminSubTab === 'ayarlar' ? 'active' : ''}" onclick="showAdminSubTab('ayarlar')">Ayarlar</button>
+    </div>
+
+    <div class="card" data-tab="izinler">
+      <h2>📊 Yıl Özeti — ${todayStr.slice(0,4)}</h2>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">1 Ocak'tan bugüne tüm personelin kullandığı izinler. Bir isme dokununca gün gün detay açılır.</p>
+      <div id="yearSummaryPanel"><p class="empty-note">Yükleniyor...</p></div>
+      <div id="yearDetailPanel"></div>
+    </div>
+
+    <div class="card" data-tab="ayarlar">
       <h2>Klinik Ayarları</h2>
       <label>Klinik Adı</label>
       <input id="clinicNameInput" value="${settings.name || ''}" />
@@ -581,7 +596,7 @@ async function renderAdmin() {
       <div class="status-msg" id="settingsStatus"></div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="ayarlar">
       <h2>Personel Listesi</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Sıralama, isim ızgarasında göründükleri sıradır. Ok butonlarıyla değiştirebilirsiniz. Bir isme dokunarak izin/devamsızlık özetini görebilirsiniz.</p>
       <div id="staffList">
@@ -603,7 +618,7 @@ async function renderAdmin() {
       <div id="staffDetailPanel"></div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="ayarlar">
       <h2>Kişiye Özel Başlangıç Saati</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Bazı personelin (örn. doktorlar) mesaiye genel saatten farklı başladığı durumlar için. Boş bırakılan personel için genel saat (${settings.expectedStart || '09:00'} hafta içi, ${settings.saturdayStart || '09:00'} Cumartesi) geçerli olur. Bitiş saati herkes için aynı kalır.</p>
       <div id="startOverridesList">
@@ -618,7 +633,7 @@ async function renderAdmin() {
       <div class="status-msg" id="startOverridesStatus"></div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="izinler">
       <h2>İzin / Devamsızlık</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Gün sonunda gelmeyen biri için o günü, ya da planlı bir izin için ileri bir tarihi girebilirsiniz — ikisi de aynı formdan.</p>
       <label>Personel</label>
@@ -688,7 +703,7 @@ async function renderAdmin() {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="ayarlar">
       <h2>📱 Cihaz Kilitlenme Kayıtları</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Bir telefon ilk kez kullanıldığında hangi isme bağlandığı, ve yönetici PIN'i ile ne zaman sıfırlandığı burada listelenir.</p>
       ${deviceLog.length ? `
@@ -710,19 +725,19 @@ async function renderAdmin() {
       ` : '<p class="empty-note">Henüz hiçbir cihaz kilitlenmedi.</p>'}
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="gunluk">
       <h2>Bugünün Kayıtları (${todayStr})</h2>
       ${renderRecordsTable(records)}
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="gunluk">
       <h2>Tek Gün Görüntüle</h2>
       <input id="historyDate" type="date" value="${todayStr}" />
       <button class="btn btn-secondary" onclick="loadHistory()">Görüntüle</button>
       <div id="historyResult" style="margin-top:10px"></div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="raporlar">
       <h2>Raporlama (Tarih Aralığı)</h2>
       <label>Başlangıç</label>
       <input id="reportStart" type="date" value="${todayStr}" />
@@ -734,6 +749,7 @@ async function renderAdmin() {
     </div>
   `;
   updateLeavePortionAvailability();
+  applyAdminSubTab();
 }
 
 function setClinicLocation() {
@@ -828,9 +844,83 @@ async function removeStaff(name) {
 }
 
 let openStaffDetailName = null;
+let openStaffDetailPanelId = 'staffDetailPanel';
 
-async function toggleStaffDetail(name) {
-  const panel = document.getElementById('staffDetailPanel');
+// --- Yönetim alt sekmeleri ---
+let adminSubTab = 'gunluk';
+let yearSummaryLoaded = false;
+
+function showAdminSubTab(tab) {
+  adminSubTab = tab;
+  document.querySelectorAll('#adminSubTabs .tab-btn').forEach((b, i) => {
+    const tabs = ['gunluk', 'izinler', 'raporlar', 'ayarlar'];
+    b.classList.toggle('active', tabs[i] === tab);
+  });
+  applyAdminSubTab();
+}
+
+function applyAdminSubTab() {
+  document.querySelectorAll('#adminView .card[data-tab]').forEach(card => {
+    card.style.display = card.dataset.tab === adminSubTab ? 'block' : 'none';
+  });
+  if (adminSubTab === 'izinler' && !yearSummaryLoaded) {
+    renderYearSummary();
+  }
+}
+
+async function renderYearSummary() {
+  const panel = document.getElementById('yearSummaryPanel');
+  if (!panel) return;
+  yearSummaryLoaded = true;
+  panel.innerHTML = '<p class="empty-note">Hesaplanıyor...</p>';
+  try {
+    const todayStr = localDateStr();
+    const yearStart = todayStr.slice(0,4) + '-01-01';
+    const dates = dateRange(yearStart, todayStr);
+    const records = await getRecordsForRange(yearStart, todayStr);
+    const allLeaves = await getLeaves();
+    const staffList = settings.staff || [];
+    const report = computeReport(records, allLeaves, dates, staffList);
+
+    const rows = staffList.map(name => {
+      const r = report[name];
+      if (!r) return '';
+      const absent = r.days.filter(d => d.status === 'absent').length;
+      const lc = r.leaveCounts || {};
+      const cell = (v, color) => v ? `<span style="color:${color};font-weight:600">${v}</span>` : '<span style="color:var(--text-muted)">—</span>';
+      return `<tr>
+        <td><span style="cursor:pointer;color:var(--primary);text-decoration:underline" onclick="toggleStaffDetail('${name.replace(/'/g,"\\'")}','yearDetailPanel')">${name}</span></td>
+        <td style="text-align:center">${cell(lc.yillik, LEAVE_TYPES.yillik.color)}</td>
+        <td style="text-align:center">${cell(lc.hastalik, LEAVE_TYPES.hastalik.color)}</td>
+        <td style="text-align:center">${cell(lc.idari, LEAVE_TYPES.idari.color)}</td>
+        <td style="text-align:center">${absent ? `<span style="color:var(--danger);font-weight:600">${absent}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    panel.innerHTML = `
+      <div style="overflow-x:auto">
+      <table>
+        <tr><th>Personel</th><th style="text-align:center">Yıllık</th><th style="text-align:center">Hastalık</th><th style="text-align:center">İdari</th><th style="text-align:center">Açıklanamayan</th></tr>
+        ${rows}
+      </table>
+      </div>
+      <p class="empty-note" style="text-align:left;margin-top:8px">Değerler gün cinsindendir (yarım gün = 0.5, Cumartesi tam gün = 0.5). "Açıklanamayan" = kayıt yok ve izin girilmemiş gün sayısı.</p>
+    `;
+  } catch (e) {
+    panel.innerHTML = '<p class="empty-note" style="color:var(--danger)">Yıl özeti yüklenemedi: ' + (e && e.message ? e.message : 'hata') + '</p>';
+  }
+}
+
+async function toggleStaffDetail(name, panelId) {
+  panelId = panelId || 'staffDetailPanel';
+  // Başka bir paneldeki açık detayı temizle
+  if (openStaffDetailName && openStaffDetailPanelId !== panelId) {
+    const other = document.getElementById(openStaffDetailPanelId);
+    if (other) other.innerHTML = '';
+    openStaffDetailName = null;
+  }
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
   if (openStaffDetailName === name) {
     // Zaten açıksa kapat
     openStaffDetailName = null;
@@ -838,6 +928,7 @@ async function toggleStaffDetail(name) {
     return;
   }
   openStaffDetailName = name;
+  openStaffDetailPanelId = panelId;
   panel.innerHTML = `<p class="empty-note" style="margin-top:10px">${name} için özet hazırlanıyor...</p>`;
 
   const todayStr = localDateStr();
@@ -893,18 +984,20 @@ async function toggleStaffDetail(name) {
       <h2 style="margin:14px 0 6px;font-size:13px">Açıklanamayan Devamsızlık Günleri (${absentDays.length})</h2>
       ${absentDays.length ? `<div style="overflow-x:auto"><table><tr><th>Tarih</th><th colspan="2"></th></tr>${absentRowsHtml}</table></div>` : '<p class="empty-note">Açıklanamayan devamsızlık yok. 🎉</p>'}
 
-      <button class="btn btn-secondary btn-small" style="margin-top:10px" onclick="toggleStaffDetail('${name.replace(/'/g,"\\'")}')">Kapat</button>
+      <button class="btn btn-secondary btn-small" style="margin-top:10px" onclick="toggleStaffDetail('${name.replace(/'/g,"\\'")}','${panelId}')">Kapat</button>
     </div>
   `;
 }
 
 function quickAddLeave(name, date) {
+  showAdminSubTab('izinler'); // form bu sekmede
   const sel = document.getElementById('leaveStaffSelect');
   const startInput = document.getElementById('leaveDateInput');
   const endInput = document.getElementById('leaveDateEndInput');
   if (sel) sel.value = name;
   if (startInput) startInput.value = date;
   if (endInput) endInput.value = date;
+  updateLeavePortionAvailability();
   const card = document.getElementById('leaveStaffSelect');
   if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   const statusEl = document.getElementById('leaveStatus');
@@ -1071,6 +1164,27 @@ function timeToMinutes(t) {
 
 async function getRecordsForRange(startStr, endStr) {
   const dates = dateRange(startStr, endStr);
+  // Hızlı yol: tüm düğümü tek istekte çekip tarihe göre süz (yıl bazlı raporlarda 200+ isteği 1'e indirir)
+  try {
+    const res = await fetch(`${FIREBASE_DB_URL}/${FIREBASE_NODE}.json`);
+    if (res.ok) {
+      const node = await res.json();
+      if (node && typeof node === 'object') {
+        const wanted = new Set(dates);
+        let all = [];
+        Object.keys(node).forEach(key => {
+          const m = key.match(/^records[:%3A]*(\d{4}-\d{2}-\d{2})$/i);
+          if (!m) return;
+          const d = m[1];
+          if (!wanted.has(d)) return;
+          let recs = node[key];
+          if (typeof recs === 'string') { try { recs = JSON.parse(recs); } catch (e) { recs = []; } }
+          if (Array.isArray(recs)) recs.forEach(r => all.push({ ...r, date: d }));
+        });
+        return all;
+      }
+    }
+  } catch (e) { /* toplu çekme başarısızsa aşağıdaki gün-gün yönteme düş */ }
   let all = [];
   for (const d of dates) {
     const recs = await getRecords(d);
