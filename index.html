@@ -348,7 +348,8 @@ async function removeLeaveEntry(id) {
 const LEAVE_TYPES = {
   hastalik: { label: 'Hastalık', color: 'var(--danger)' },
   idari: { label: 'İdari İzin', color: '#b8860b' },
-  yillik: { label: 'Yıllık İzin', color: 'var(--primary)' }
+  yillik: { label: 'Yıllık İzin', color: 'var(--primary)' },
+  calisti: { label: 'Çalıştı (giriş unutuldu)', color: 'var(--success)' }
 };
 
 function haversine(lat1, lon1, lat2, lon2) {
@@ -651,6 +652,7 @@ async function renderAdmin() {
             <option value="yillik">Yıllık İzin</option>
             <option value="idari">İdari İzin</option>
             <option value="hastalik">Hastalık</option>
+            <option value="calisti">Çalıştı (giriş unutuldu)</option>
           </select></div>
         </div>
         <div class="row-2">
@@ -1120,7 +1122,7 @@ async function submitLeaveEntry() {
     let leaves = await getLeaves();
     if (editingLeaveIds) leaves = leaves.filter(l => !editingLeaveIds.includes(l.id)); // düzenleme: eski kayıtları kaldır
     dates.forEach(d => {
-      const dayPortion = isSaturday(d) ? 'full' : portion; // Cumartesi'de yarım gün izin diye bir şey yok
+      const dayPortion = (isSaturday(d) || type === 'calisti') ? 'full' : portion; // Cumartesi'de ve 'çalıştı' işaretinde yarım gün yok
       leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), groupId, name, date: d, type, portion: dayPortion, note });
     });
     await saveLeaves(leaves);
@@ -1316,9 +1318,19 @@ function computeReport(records, leaves, dateList, staffList) {
 
       const dayRecs = (dateGroups[dateStr] || []).slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
       const leave = leaveForDate(leaves, name, dateStr);
-      const isHalfDayLeave = leave && (leave.portion === 'morning' || leave.portion === 'afternoon');
+      const isHalfDayLeave = leave && leave.type !== 'calisti' && (leave.portion === 'morning' || leave.portion === 'afternoon');
 
       if (!dayRecs.length) {
+        // Giriş unutulmuş ama çalışılmış olarak işaretlendiyse: tam mesai ile çalışılmış gün say
+        if (leave && leave.type === 'calisti') {
+          presentDays++;
+          const mins = Math.max(0, timeToMinutes(exp.end) - timeToMinutes(exp.start));
+          totalMinutes += mins; onTimeArr++; onTimeDep++;
+          days.push({ date: dateStr, status: 'present', manual: true, manualNote: leave.note || '',
+            arrivalTime: exp.start, departureTime: exp.end, arrivalStatus: 'zamanında', departureStatus: 'zamanında',
+            arrivalDiff: 0, departureDiff: 0, dayMinutes: mins, assumed: false, missing: false, halfDayLeave: null });
+          return;
+        }
         // O gün hiç giriş/çıkış kaydı yok: izinli mi, açıklanamayan devamsızlık mı?
         if (leave) {
           const dayValue = isSaturday(dateStr) ? 0.5 : 1;
@@ -1487,6 +1499,9 @@ async function runReport() {
       const lt = LEAVE_TYPES[d.leaveType] || { label: d.leaveType, color: 'var(--text-muted)' };
       return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:${lt.color}">📌 ${lt.label}</span>${portionLabel(d.leavePortion)}${d.leaveNote ? ` <span style="color:var(--text-muted);font-size:11px">(${d.leaveNote})</span>` : ''}</td></tr>`;
     }
+    if (d.status === 'present' && d.manual) {
+      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--success)">✅ Çalıştı (giriş unutuldu, manuel işaretlendi)</span>${d.manualNote ? ` <span style="color:var(--text-muted);font-size:11px">(${d.manualNote})</span>` : ''}</td></tr>`;
+    }
     if (d.status === 'absent') {
       return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--danger)">⚠️ Açıklanamayan devamsızlık</span> <button class="btn btn-secondary btn-small" style="margin:0;width:auto;padding:4px 8px;font-size:11px" onclick="quickAddLeave('${d.name.replace(/'/g,"\\'")}','${d.date}')">+ İzin Ekle</button></td></tr>`;
     }
@@ -1601,7 +1616,8 @@ function downloadDailyCSV() {
       return;
     }
     let note = d.missing ? 'Giriş kaydı eksik' : (d.assumed ? 'Çıkış varsayıldı (unutulmuş)' : '');
-    let durum = 'Çalıştı';
+    let durum = d.manual ? 'Çalıştı (giriş unutuldu, manuel)' : 'Çalıştı';
+    if (d.manual && d.manualNote) note = (note ? note + '; ' : '') + d.manualNote;
     if (d.halfDayLeave) {
       const lt = LEAVE_TYPES[d.halfDayLeave.type] || { label: d.halfDayLeave.type };
       const portionTxt = d.halfDayLeave.portion === 'morning' ? 'Sabah' : 'Öğleden Sonra';
