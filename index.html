@@ -206,7 +206,7 @@
 </div>
 
 <script>
-let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", staffStartOverrides: { "Ezgi Erdenol": "10:00", "Yasemin Hazal Dedeağa": "10:00", "Doruk Altıok": "10:00", "İpek Naz Karasu": "10:00", "Mehmet Dikmen": "10:00", "Murat Dikmen": "10:00" }, staff: ["Serpil Akpınar", "Yasemin Hazal Dedeağa", "Ezgi Erdenol", "Mehmet Dikmen", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Meral Kılıç", "Murat Dikmen", "Elif Nur Kasap", "İpek Naz Karasu", "Beyzanur Köşker", "Merve İkra Uzun"] };
+let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", trackingStart: "2026-08-31", staffStartOverrides: { "Ezgi Erdenol": "10:00", "Yasemin Hazal Dedeağa": "10:00", "Doruk Altıok": "10:00", "İpek Naz Karasu": "10:00", "Mehmet Dikmen": "10:00", "Murat Dikmen": "10:00" }, staff: ["Serpil Akpınar", "Yasemin Hazal Dedeağa", "Ezgi Erdenol", "Mehmet Dikmen", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Meral Kılıç", "Murat Dikmen", "Elif Nur Kasap", "İpek Naz Karasu", "Beyzanur Köşker", "Merve İkra Uzun"] };
 let currentTab = 'checkin';
 let adminUnlocked = false;
 
@@ -284,7 +284,7 @@ async function kvSet(key, value) {
 async function loadSettings() {
   try {
     const r = await kvGet('clinic-settings');
-    if (r && r.value) settings = JSON.parse(r.value);
+    if (r && r.value) settings = { ...settings, ...JSON.parse(r.value) }; // kayıtlı ayarlar + yeni varsayılan alanlar
   } catch (e) { /* not set yet */ }
   document.getElementById('clinicTitle').textContent = settings.name || "Klinik Giriş Takip";
 }
@@ -560,7 +560,7 @@ async function renderAdmin() {
 
     <div class="card" data-tab="izinler">
       <h2>📊 Yıl Özeti — ${todayStr.slice(0,4)}</h2>
-      <p class="empty-note" style="text-align:left;margin:0 0 10px">1 Ocak'tan bugüne tüm personelin kullandığı izinler. Bir isme dokununca gün gün detay açılır.</p>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">1 Ocak'tan bugüne. İsme dokununca detay açılır.</p>
       <div id="yearSummaryPanel"><p class="empty-note">Yükleniyor...</p></div>
       <div id="yearDetailPanel"></div>
     </div>
@@ -590,6 +590,9 @@ async function renderAdmin() {
         <input id="saturdayEndInput" type="time" value="${settings.saturdayEnd || '14:00'}" />
       </div>
       <p class="empty-note" style="text-align:left;margin:4px 0 0">Pazar günleri klinik kapalı kabul edilir, geç/erken hesabına dahil edilmez.</p>
+      <label style="margin-top:10px">Takip Başlangıç Tarihi</label>
+      <input id="trackingStartInput" type="date" value="${settings.trackingStart || ''}" />
+      <p class="empty-note" style="text-align:left;margin:4px 0 0">Bu tarihten önceki günler "açıklanamayan devamsızlık" sayılmaz (sistem kullanılmaya başlanmadan önceki dönem). Geçmişe dönük girilen izinler yine sayılır.</p>
       <label style="margin-top:10px">Yönetim PIN Kodu</label>
       <input id="adminPinSetting" type="text" inputmode="numeric" placeholder="Örn. 2026" value="${settings.adminPin || ''}" />
       <button class="btn btn-primary" onclick="saveClinicSettings()">Ayarları Kaydet</button>
@@ -634,73 +637,77 @@ async function renderAdmin() {
     </div>
 
     <div class="card" data-tab="izinler">
-      <h2>İzin / Devamsızlık</h2>
-      <p class="empty-note" style="text-align:left;margin:0 0 10px">Gün sonunda gelmeyen biri için o günü, ya da planlı bir izin için ileri bir tarihi girebilirsiniz — ikisi de aynı formdan.</p>
-      <label>Personel</label>
-      <select id="leaveStaffSelect">${(settings.staff || []).map(s => `<option value="${s}">${s}</option>`).join('')}</select>
-      <label style="margin-top:8px">Başlangıç Tarihi</label>
-      <input id="leaveDateInput" type="date" value="${todayStr}" onchange="updateLeavePortionAvailability()" />
-      <label style="margin-top:8px">Bitiş Tarihi <span style="color:var(--text-muted);font-weight:400">(çok günlük izin için, tek günse aynı bırakın)</span></label>
-      <input id="leaveDateEndInput" type="date" value="${todayStr}" onchange="updateLeavePortionAvailability()" />
-      <label style="margin-top:8px">İzin Türü</label>
-      <select id="leaveTypeSelect">
-        <option value="hastalik">Hastalık</option>
-        <option value="idari">İdari İzin</option>
-        <option value="yillik">Yıllık İzin</option>
-      </select>
-      <label style="margin-top:8px">Süre</label>
-      <select id="leavePortionSelect">
-        <option value="full">Tüm Gün</option>
-        <option value="morning">Sadece Sabah (öğleden sonra çalıştı/çalışacak)</option>
-        <option value="afternoon">Sadece Öğleden Sonra (sabah çalıştı/çalışacak)</option>
-      </select>
-      <p class="empty-note" id="leavePortionNote" style="display:none;text-align:left;margin:-6px 0 10px">Cumartesi günleri klinik zaten yarım gün açık olduğu için yarım gün izin seçeneği yok — otomatik "Tüm Gün" olarak kaydedilir.</p>
-      <label style="margin-top:8px">Not (isteğe bağlı)</label>
-      <input id="leaveNoteInput" placeholder="Örn. rapor, düğün izni vb." />
-      <button class="btn btn-primary" onclick="submitLeaveEntry()">İzin Kaydı Ekle</button>
-      <div class="status-msg" id="leaveStatus"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
+        <h2 style="margin:0">İzin Kayıtları</h2>
+        <button class="btn btn-primary btn-small" style="margin:0;width:auto" onclick="openLeaveForm()">+ Yeni İzin</button>
+      </div>
+      ${leaveFlash ? `<div class="status-msg status-success" style="margin:0 0 10px">${leaveFlash}</div>` : ''}
+
+      <div id="leaveFormWrap" style="display:none;background:#f7fafc;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px">
+        <h2 id="leaveFormTitle" style="font-size:14px;margin:0 0 8px">Yeni İzin</h2>
+        <div class="row-2">
+          <div><label>Personel</label><select id="leaveStaffSelect" style="margin-bottom:8px">${(settings.staff || []).map(s => `<option value="${s}">${s}</option>`).join('')}</select></div>
+          <div><label>Tür</label><select id="leaveTypeSelect" style="margin-bottom:8px">
+            <option value="yillik">Yıllık İzin</option>
+            <option value="idari">İdari İzin</option>
+            <option value="hastalik">Hastalık</option>
+          </select></div>
+        </div>
+        <div class="row-2">
+          <div><label>Başlangıç</label><input id="leaveDateInput" type="date" value="${todayStr}" style="margin-bottom:8px" onchange="onLeaveStartChange()" /></div>
+          <div><label>Bitiş</label><input id="leaveDateEndInput" type="date" value="${todayStr}" style="margin-bottom:8px" onchange="updateLeavePortionAvailability()" /></div>
+        </div>
+        <div class="row-2">
+          <div><label>Süre</label><select id="leavePortionSelect" style="margin-bottom:8px">
+            <option value="full">Tüm Gün</option>
+            <option value="morning">Sadece Sabah</option>
+            <option value="afternoon">Sadece Öğleden Sonra</option>
+          </select></div>
+          <div><label>Not</label><input id="leaveNoteInput" placeholder="isteğe bağlı" style="margin-bottom:8px" /></div>
+        </div>
+        <p class="empty-note" id="leavePortionNote" style="display:none;text-align:left;margin:0 0 8px">Cumartesi zaten yarım gün — "Tüm Gün" olarak kaydedilir.</p>
+        <div class="row-2">
+          <button class="btn btn-primary" id="leaveSubmitBtn" style="margin:0" onclick="submitLeaveEntry()">Kaydet</button>
+          <button class="btn btn-secondary" style="margin:0" onclick="cancelLeaveForm()">Vazgeç</button>
+        </div>
+        <div class="status-msg" id="leaveStatus"></div>
+      </div>
+
+      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="btn btn-small ${leaveListFilter === 'upcoming' ? 'btn-primary' : 'btn-secondary'}" style="margin:0;width:auto" onclick="setLeaveListFilter('upcoming')">Yaklaşan</button>
+        <button class="btn btn-small ${leaveListFilter === 'recent' ? 'btn-primary' : 'btn-secondary'}" style="margin:0;width:auto" onclick="setLeaveListFilter('recent')">Son 30 Gün</button>
+        <button class="btn btn-small ${leaveListFilter === 'all' ? 'btn-primary' : 'btn-secondary'}" style="margin:0;width:auto" onclick="setLeaveListFilter('all')">Tümü</button>
+      </div>
 
       ${(() => {
-        const upcomingGroups = groupLeaveEntries(leaves.filter(l => l.date >= todayStr)).sort((a,b) => a.startDate.localeCompare(b.startDate));
-        if (!upcomingGroups.length) return '';
+        const cutoff = localDateStr(new Date(Date.now() - 30*24*3600*1000));
+        let list = groupLeaveEntries(leaves);
+        if (leaveListFilter === 'upcoming') list = list.filter(g => g.endDate >= todayStr);
+        else if (leaveListFilter === 'recent') list = list.filter(g => g.endDate >= cutoff);
+        list.sort((a,b) => b.startDate.localeCompare(a.startDate));
+        if (!list.length) return '<p class="empty-note">Bu filtrede kayıt yok.</p>';
         return `
-          <h2 style="margin-top:18px">📅 Yaklaşan Planlı İzinler</h2>
           <div style="overflow-x:auto">
           <table>
-            <tr><th>Tarih</th><th>Personel</th><th>Tür</th><th>Not</th><th></th></tr>
-            ${upcomingGroups.map(g => `
-              <tr style="${g.startDate === todayStr ? 'background:#fff8e6' : ''}">
-                <td>${g.startDate === g.endDate ? g.startDate : g.startDate + ' → ' + g.endDate}${g.startDate === todayStr ? ' <span style="color:var(--text-muted);font-size:11px">(bugün)</span>' : ''}</td>
+            <tr><th>Tarih</th><th>Personel</th><th>Tür</th><th></th></tr>
+            ${list.map(g => {
+              const upcoming = g.startDate > todayStr;
+              const isToday = g.startDate <= todayStr && g.endDate >= todayStr;
+              const dateTxt = g.startDate === g.endDate ? g.startDate : g.startDate + ' → ' + g.endDate;
+              return `
+              <tr style="${isToday ? 'background:#fff8e6' : ''}">
+                <td>${dateTxt}${upcoming ? ' <span style="color:var(--text-muted);font-size:11px">(planlı)</span>' : ''}${isToday ? ' <span style="color:var(--text-muted);font-size:11px">(bugün)</span>' : ''}</td>
                 <td>${g.name}</td>
-                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span>${portionLabel(g.portion)}</td>
-                <td>${g.note || ''}</td>
-                <td><button onclick="deleteLeaveGroup('${g.ids.join(',')}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
-              </tr>
-            `).join('')}
+                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span>${portionLabel(g.portion)}${g.note ? ` <span style="color:var(--text-muted);font-size:11px">— ${g.note}</span>` : ''}</td>
+                <td style="white-space:nowrap">
+                  <button onclick="startEditLeave('${g.ids.join(',')}')" style="border:none;background:none;color:var(--primary);cursor:pointer;font-size:13px">Düzenle</button>
+                  <button onclick="deleteLeaveGroup('${g.ids.join(',')}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button>
+                </td>
+              </tr>`;
+            }).join('')}
           </table>
-          </div>
-        `;
+          </div>`;
       })()}
-
-      <h2 style="margin-top:18px">Tüm İzin Kayıtları</h2>
-      <div style="margin-top:4px">
-        ${leaves.length ? `
-          <div style="overflow-x:auto">
-          <table>
-            <tr><th>Tarih</th><th>Personel</th><th>Tür</th><th>Not</th><th></th></tr>
-            ${groupLeaveEntries(leaves).sort((a,b) => b.startDate.localeCompare(a.startDate)).map(g => `
-              <tr>
-                <td>${g.startDate === g.endDate ? g.startDate : g.startDate + ' → ' + g.endDate}</td>
-                <td>${g.name}</td>
-                <td><span style="color:${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].color : 'inherit'}">${LEAVE_TYPES[g.type] ? LEAVE_TYPES[g.type].label : g.type}</span>${portionLabel(g.portion)}</td>
-                <td>${g.note || ''}</td>
-                <td><button onclick="deleteLeaveGroup('${g.ids.join(',')}')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-size:13px">Sil</button></td>
-              </tr>
-            `).join('')}
-          </table>
-          </div>
-        ` : '<p class="empty-note">Henüz izin kaydı yok</p>'}
-      </div>
     </div>
 
     <div class="card" data-tab="ayarlar">
@@ -750,6 +757,7 @@ async function renderAdmin() {
   `;
   updateLeavePortionAvailability();
   applyAdminSubTab();
+  leaveFlash = '';
 }
 
 function setClinicLocation() {
@@ -772,6 +780,7 @@ async function saveClinicSettings() {
   settings.name = document.getElementById('clinicNameInput').value || 'Klinik';
   settings.radius = parseInt(document.getElementById('radiusInput').value) || 150;
   settings.adminPin = document.getElementById('adminPinSetting').value.trim() || null;
+  settings.trackingStart = document.getElementById('trackingStartInput').value || null;
   settings.expectedStart = document.getElementById('expectedStartInput').value || '09:00';
   settings.expectedEnd = document.getElementById('expectedEndInput').value || '18:00';
   settings.saturdayStart = document.getElementById('saturdayStartInput').value || '09:00';
@@ -991,22 +1000,78 @@ async function toggleStaffDetail(name, panelId) {
 
 function quickAddLeave(name, date) {
   showAdminSubTab('izinler'); // form bu sekmede
-  const sel = document.getElementById('leaveStaffSelect');
-  const startInput = document.getElementById('leaveDateInput');
-  const endInput = document.getElementById('leaveDateEndInput');
-  if (sel) sel.value = name;
-  if (startInput) startInput.value = date;
-  if (endInput) endInput.value = date;
-  updateLeavePortionAvailability();
-  const card = document.getElementById('leaveStaffSelect');
-  if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  openLeaveForm({ name, date });
   const statusEl = document.getElementById('leaveStatus');
   if (statusEl) {
     statusEl.className = 'status-msg status-loading';
-    statusEl.textContent = `"${name}" ve "${date}" dolduruldu — izin türünü seçip "İzin Kaydı Ekle"ye basın.`;
+    statusEl.textContent = `"${name}" — "${date}" dolduruldu; türü seçip Kaydet'e basın.`;
   }
 }
 
+
+// --- İzin formu: aç/kapat, düzenle, liste filtresi ---
+let leaveListFilter = 'recent';
+let leaveFlash = ''; // kayıt/silme sonrası tek seferlik onay mesajı
+let editingLeaveIds = null; // düzenleme modunda eski kayıt id'leri
+
+function setLeaveListFilter(f) { leaveListFilter = f; renderAdmin(); }
+
+function onLeaveStartChange() {
+  // Başlangıç değişince bitiş ondan önce kalmasın
+  const s = document.getElementById('leaveDateInput');
+  const e = document.getElementById('leaveDateEndInput');
+  if (s && e && e.value < s.value) e.value = s.value;
+  updateLeavePortionAvailability();
+}
+
+function openLeaveForm(prefill) {
+  const wrap = document.getElementById('leaveFormWrap');
+  if (!wrap) return;
+  editingLeaveIds = null;
+  const todayStr = localDateStr();
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('leaveStaffSelect', (prefill && prefill.name) || (settings.staff && settings.staff[0]) || '');
+  set('leaveDateInput', (prefill && prefill.date) || todayStr);
+  set('leaveDateEndInput', (prefill && prefill.date) || todayStr);
+  set('leaveTypeSelect', 'yillik');
+  set('leavePortionSelect', 'full');
+  set('leaveNoteInput', '');
+  document.getElementById('leaveFormTitle').textContent = 'Yeni İzin';
+  document.getElementById('leaveSubmitBtn').textContent = 'Kaydet';
+  const st = document.getElementById('leaveStatus'); if (st) { st.className = 'status-msg'; st.textContent = ''; }
+  wrap.style.display = 'block';
+  updateLeavePortionAvailability();
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function cancelLeaveForm() {
+  const wrap = document.getElementById('leaveFormWrap');
+  if (wrap) wrap.style.display = 'none';
+  editingLeaveIds = null;
+}
+
+async function startEditLeave(idsCsv) {
+  const ids = idsCsv.split(',');
+  const leaves = await getLeaves();
+  const group = groupLeaveEntries(leaves.filter(l => ids.includes(l.id)))[0];
+  if (!group) return;
+  const wrap = document.getElementById('leaveFormWrap');
+  if (!wrap) return;
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('leaveStaffSelect', group.name);
+  set('leaveDateInput', group.startDate);
+  set('leaveDateEndInput', group.endDate);
+  set('leaveTypeSelect', group.type);
+  set('leavePortionSelect', group.portion || 'full');
+  set('leaveNoteInput', group.note || '');
+  editingLeaveIds = ids;
+  document.getElementById('leaveFormTitle').textContent = 'İzni Düzenle';
+  document.getElementById('leaveSubmitBtn').textContent = 'Değişiklikleri Kaydet';
+  const st = document.getElementById('leaveStatus'); if (st) { st.className = 'status-msg'; st.textContent = ''; }
+  wrap.style.display = 'block';
+  updateLeavePortionAvailability();
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
 function updateLeavePortionAvailability() {
   const startInput = document.getElementById('leaveDateInput');
@@ -1052,15 +1117,16 @@ async function submitLeaveEntry() {
   try {
     const dates = dateRange(startDate, endDate);
     const groupId = 'g' + Date.now() + Math.random().toString(36).slice(2,7);
-    const leaves = await getLeaves();
+    let leaves = await getLeaves();
+    if (editingLeaveIds) leaves = leaves.filter(l => !editingLeaveIds.includes(l.id)); // düzenleme: eski kayıtları kaldır
     dates.forEach(d => {
       const dayPortion = isSaturday(d) ? 'full' : portion; // Cumartesi'de yarım gün izin diye bir şey yok
       leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), groupId, name, date: d, type, portion: dayPortion, note });
     });
     await saveLeaves(leaves);
+    editingLeaveIds = null;
     const portionLabel = portion === 'morning' ? ' (Sabah)' : portion === 'afternoon' ? ' (Öğleden Sonra)' : '';
-    statusEl.className = 'status-msg status-success';
-    statusEl.textContent = dates.length === 1
+    leaveFlash = dates.length === 1
       ? `✅ ${name} — ${startDate} için ${LEAVE_TYPES[type].label}${portionLabel} kaydedildi.`
       : `✅ ${name} — ${startDate} → ${endDate} (${dates.length} gün) için ${LEAVE_TYPES[type].label}${portionLabel} kaydedildi.`;
     renderAdmin();
@@ -1080,6 +1146,7 @@ async function deleteLeaveGroup(idsCsv) {
   const leaves = await getLeaves();
   const filtered = leaves.filter(l => !ids.includes(l.id));
   await saveLeaves(filtered);
+  leaveFlash = '🗑 İzin kaydı silindi.';
   renderAdmin();
 }
 
@@ -1242,6 +1309,10 @@ function computeReport(records, leaves, dateList, staffList) {
     dateList.forEach(dateStr => {
       const exp = getExpectedForDate(dateStr, name);
       if (!exp) return; // Pazar - kapalı, hesaba katılmaz
+      const beforeTracking = settings.trackingStart && dateStr < settings.trackingStart;
+      // Bugün, mesai bitmeden "gelmedi" sayılmasın (henüz gelmemiş olabilir)
+      const nowStr = localDateStr();
+      const shiftOver = dateStr < nowStr || (dateStr === nowStr && timeToMinutes(new Date().toTimeString().slice(0,5)) >= timeToMinutes(exp.end));
 
       const dayRecs = (dateGroups[dateStr] || []).slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
       const leave = leaveForDate(leaves, name, dateStr);
@@ -1253,7 +1324,7 @@ function computeReport(records, leaves, dateList, staffList) {
           const dayValue = isSaturday(dateStr) ? 0.5 : 1;
           leaveCounts[leave.type] = (leaveCounts[leave.type] || 0) + dayValue;
           days.push({ date: dateStr, status: 'leave', leaveType: leave.type, leavePortion: leave.portion || 'full', leaveNote: leave.note || '', leaveDayValue: dayValue });
-        } else {
+        } else if (!beforeTracking && shiftOver) {
           absentDays++;
           days.push({ date: dateStr, status: 'absent' });
         }
