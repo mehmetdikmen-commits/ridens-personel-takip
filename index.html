@@ -186,6 +186,31 @@
     background: var(--primary);
     color: white;
   }
+  /* İzin takvimi */
+  .cal-nav { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .cal-nav button { border:1px solid var(--border); background:white; border-radius:8px; padding:6px 12px; font-size:16px; cursor:pointer; color:var(--primary); }
+  .cal-nav .cal-title { font-weight:700; font-size:15px; color:var(--primary-dark); }
+  .cal-head { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; margin-bottom:3px; }
+  .cal-head div { text-align:center; font-size:10px; font-weight:700; color:var(--text-muted); }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+  .cal-cell { min-height:58px; border:1px solid var(--border); border-radius:6px; padding:2px; background:white; cursor:pointer; overflow:hidden; }
+  .cal-cell.empty { background:transparent; border-color:transparent; cursor:default; }
+  .cal-cell.sun { background:#f1f3f5; }
+  .cal-cell.sun .cal-day { color:var(--text-muted); }
+  .cal-cell.today { outline:2px solid var(--primary); outline-offset:-1px; }
+  .cal-cell.selected { background:#eef3f6; }
+  .cal-cell.busy { border:2px solid #b8860b; background:#fffbea; }
+  .cal-cell.conflict-dr { border:2px solid var(--danger); background:#fff5f5; }
+  .cal-day { font-weight:700; font-size:11px; margin-bottom:2px; display:flex; justify-content:space-between; }
+  .cal-day .warn { font-size:10px; }
+  .cal-chip { display:block; border-radius:4px; padding:1px 3px; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:9px; line-height:1.35; border-left:3px solid; }
+  .cal-chip.dr { font-weight:700; }
+  .cal-chip.t-yillik { background:#e3ecf5; border-color:var(--primary); }
+  .cal-chip.t-idari { background:#fff3d6; border-color:#b8860b; }
+  .cal-chip.t-hastalik { background:#fde8e8; border-color:var(--danger); }
+  .cal-legend { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; font-size:11px; color:var(--text-muted); }
+  .cal-legend span { display:inline-flex; align-items:center; gap:4px; }
+  .cal-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; }
 </style>
 </head>
 <body>
@@ -206,7 +231,7 @@
 </div>
 
 <script>
-let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", trackingStart: "2026-08-31", staffStartOverrides: { "Ezgi Erdenol": "10:00", "Yasemin Hazal Dedeağa": "10:00", "Doruk Altıok": "10:00", "İpek Naz Karasu": "10:00", "Mehmet Dikmen": "10:00", "Murat Dikmen": "10:00" }, staff: ["Serpil Akpınar", "Yasemin Hazal Dedeağa", "Ezgi Erdenol", "Mehmet Dikmen", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Meral Kılıç", "Murat Dikmen", "Elif Nur Kasap", "İpek Naz Karasu", "Beyzanur Köşker", "Merve İkra Uzun"] };
+let settings = { name: "Ridens Sağlık Hizmetleri", lat: 39.902577, lng: 32.8614141, radius: 150, adminPin: "2026", expectedStart: "09:00", expectedEnd: "18:00", saturdayStart: "09:00", saturdayEnd: "14:00", trackingStart: "2026-08-31", doctors: ["Ezgi Erdenol", "Yasemin Hazal Dedeağa", "Doruk Altıok", "İpek Naz Karasu", "Mehmet Dikmen", "Murat Dikmen"], staffStartOverrides: { "Ezgi Erdenol": "10:00", "Yasemin Hazal Dedeağa": "10:00", "Doruk Altıok": "10:00", "İpek Naz Karasu": "10:00", "Mehmet Dikmen": "10:00", "Murat Dikmen": "10:00" }, staff: ["Serpil Akpınar", "Yasemin Hazal Dedeağa", "Ezgi Erdenol", "Mehmet Dikmen", "Ebru Mesta", "Doruk Altıok", "Gamze Nur Kıran", "Hatice Melike Topcu", "Meral Kılıç", "Murat Dikmen", "Elif Nur Kasap", "İpek Naz Karasu", "Beyzanur Köşker", "Merve İkra Uzun"] };
 let currentTab = 'checkin';
 let adminUnlocked = false;
 
@@ -560,6 +585,12 @@ async function renderAdmin() {
     </div>
 
     <div class="card" data-tab="izinler">
+      <h2>📅 İzin Takvimi</h2>
+      <div id="leaveCalendarPanel"></div>
+      <div id="leaveCalendarDayPanel"></div>
+    </div>
+
+    <div class="card" data-tab="izinler">
       <h2>📊 Yıl Özeti — ${todayStr.slice(0,4)}</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">1 Ocak'tan bugüne. İsme dokununca detay açılır.</p>
       <div id="yearSummaryPanel"><p class="empty-note">Yükleniyor...</p></div>
@@ -623,12 +654,12 @@ async function renderAdmin() {
     </div>
 
     <div class="card" data-tab="ayarlar">
-      <h2>Kişiye Özel Başlangıç Saati</h2>
+      <h2>Kişiye Özel Başlangıç Saati &amp; Doktor İşareti</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Bazı personelin (örn. doktorlar) mesaiye genel saatten farklı başladığı durumlar için. Boş bırakılan personel için genel saat (${settings.expectedStart || '09:00'} hafta içi, ${settings.saturdayStart || '09:00'} Cumartesi) geçerli olur. Bitiş saati herkes için aynı kalır.</p>
       <div id="startOverridesList">
         ${(settings.staff || []).map(s => `
           <div class="row-2" style="align-items:center;margin-bottom:8px">
-            <label style="margin:0;font-weight:400;color:var(--text)">${s}</label>
+            <label style="margin:0;font-weight:400;color:var(--text);display:flex;align-items:center;gap:6px"><input type="checkbox" class="doctor-check" data-name="${s.replace(/"/g,'&quot;')}" ${(settings.doctors || []).includes(s) ? 'checked' : ''} style="width:auto;margin:0" /> ${s} <span style="color:var(--text-muted);font-size:11px">(Dr.)</span></label>
             <input type="time" class="start-override-input" data-name="${s.replace(/"/g,'&quot;')}" value="${(settings.staffStartOverrides && settings.staffStartOverrides[s]) || ''}" style="margin:0" />
           </div>
         `).join('')}
@@ -758,6 +789,8 @@ async function renderAdmin() {
     </div>
   `;
   updateLeavePortionAvailability();
+  calLeavesCache = leaves;
+  renderLeaveCalendar();
   applyAdminSubTab();
   leaveFlash = '';
 }
@@ -828,6 +861,7 @@ async function saveStartOverrides() {
     if (val) overrides[name] = val;
   });
   settings.staffStartOverrides = overrides;
+  settings.doctors = Array.from(document.querySelectorAll('.doctor-check')).filter(c => c.checked).map(c => c.dataset.name);
   try {
     await saveSettings();
     statusEl.className = 'status-msg status-success';
@@ -1010,6 +1044,112 @@ function quickAddLeave(name, date) {
   }
 }
 
+
+// --- İzin takvimi ---
+const TR_MONTHS = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+let calMonth = localDateStr().slice(0,7); // YYYY-MM
+let calSelectedDay = null;
+let calLeavesCache = [];
+
+function calShift(delta) {
+  const [y, m] = calMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  calMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  calSelectedDay = null;
+  renderLeaveCalendar();
+}
+
+function isDoctor(name) { return (settings.doctors || []).includes(name); }
+function shortName(name) { return name.split(' ')[0]; }
+
+function renderLeaveCalendar() {
+  const panel = document.getElementById('leaveCalendarPanel');
+  if (!panel) return;
+  const [y, m] = calMonth.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const startOffset = (first.getDay() + 6) % 7; // Pazartesi=0
+  const todayStr = localDateStr();
+
+  // Güne göre izinler (çalıştı işaretleri hariç)
+  const byDay = {};
+  calLeavesCache.forEach(l => {
+    if (l.type === 'calisti') return;
+    if (!l.date.startsWith(calMonth)) return;
+    (byDay[l.date] = byDay[l.date] || []).push(l);
+  });
+
+  let cells = '';
+  for (let i = 0; i < startOffset; i++) cells += '<div class="cal-cell empty"></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${calMonth}-${String(d).padStart(2,'0')}`;
+    const dow = new Date(y, m - 1, d).getDay();
+    const list = (byDay[ds] || []).slice().sort((a,b) => (isDoctor(b.name) - isDoctor(a.name)) || a.name.localeCompare(b.name));
+    const drCount = list.filter(l => isDoctor(l.name)).length;
+    const cls = ['cal-cell'];
+    if (dow === 0) cls.push('sun');
+    if (ds === todayStr) cls.push('today');
+    if (ds === calSelectedDay) cls.push('selected');
+    if (drCount >= 2) cls.push('conflict-dr'); else if (list.length >= 3) cls.push('busy');
+    const warn = drCount >= 2 ? '<span class="warn" title="Aynı gün birden fazla doktor izinli">⚠️</span>' : (list.length >= 3 ? '<span class="warn">•</span>' : '');
+    const chips = list.map(l => {
+      const half = l.portion === 'morning' ? ' ½s' : l.portion === 'afternoon' ? ' ½ö' : '';
+      return `<span class="cal-chip t-${l.type} ${isDoctor(l.name) ? 'dr' : ''}" title="${l.name} — ${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].label : l.type}">${isDoctor(l.name) ? 'Dr.' : ''}${shortName(l.name)}${half}</span>`;
+    }).join('');
+    cells += `<div class="${cls.join(' ')}" onclick="calSelectDay('${ds}')"><div class="cal-day"><span>${d}</span>${warn}</div>${chips}</div>`;
+  }
+
+  panel.innerHTML = `
+    <div class="cal-nav">
+      <button onclick="calShift(-1)">◀</button>
+      <span class="cal-title">${TR_MONTHS[m-1]} ${y}</span>
+      <button onclick="calShift(1)">▶</button>
+    </div>
+    <div class="cal-head"><div>Pzt</div><div>Sal</div><div>Çar</div><div>Per</div><div>Cum</div><div>Cmt</div><div>Paz</div></div>
+    <div class="cal-grid">${cells}</div>
+    <div class="cal-legend">
+      <span><i style="background:#e3ecf5;border-left:3px solid var(--primary)"></i>Yıllık</span>
+      <span><i style="background:#fff3d6;border-left:3px solid #b8860b"></i>İdari</span>
+      <span><i style="background:#fde8e8;border-left:3px solid var(--danger)"></i>Hastalık</span>
+      <span><b>Dr.</b> = doktor</span>
+      <span>½s/½ö = yarım gün</span>
+      <span style="color:var(--danger)">⚠️ = 2+ doktor aynı gün</span>
+    </div>
+  `;
+  renderCalDayPanel();
+}
+
+function calSelectDay(ds) {
+  calSelectedDay = calSelectedDay === ds ? null : ds;
+  renderLeaveCalendar();
+}
+
+function renderCalDayPanel() {
+  const panel = document.getElementById('leaveCalendarDayPanel');
+  if (!panel) return;
+  if (!calSelectedDay) { panel.innerHTML = ''; return; }
+  const list = calLeavesCache.filter(l => l.date === calSelectedDay && l.type !== 'calisti');
+  const [y, m, d] = calSelectedDay.split('-').map(Number);
+  const title = `${d} ${TR_MONTHS[m-1]} ${y}`;
+  const groups = groupLeaveEntries(calLeavesCache.filter(l => l.type !== 'calisti'));
+  const rows = list.map(l => {
+    const g = groups.find(gr => gr.ids.includes(l.id));
+    const lt = LEAVE_TYPES[l.type] || { label: l.type, color: 'inherit' };
+    return `<tr>
+      <td>${isDoctor(l.name) ? '<b>Dr.</b> ' : ''}${l.name}</td>
+      <td><span style="color:${lt.color}">${lt.label}</span>${portionLabel(l.portion)}${l.note ? ` <span style="color:var(--text-muted);font-size:11px">— ${l.note}</span>` : ''}</td>
+      <td style="white-space:nowrap">${g ? `<button onclick="startEditLeave('${g.ids.join(',')}')" style="border:none;background:none;color:var(--primary);cursor:pointer;font-size:13px">Düzenle</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+  panel.innerHTML = `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <strong>${title}</strong>
+        <button class="btn btn-secondary btn-small" style="margin:0;width:auto" onclick="openLeaveForm({date:'${calSelectedDay}'})">+ Bu güne izin ekle</button>
+      </div>
+      ${list.length ? `<table><tr><th>Kişi</th><th>İzin</th><th></th></tr>${rows}</table>` : '<p class="empty-note">Bu gün izinli kimse yok.</p>'}
+    </div>`;
+}
 
 // --- İzin formu: aç/kapat, düzenle, liste filtresi ---
 let leaveListFilter = 'recent';
