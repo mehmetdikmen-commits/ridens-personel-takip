@@ -590,6 +590,13 @@ async function renderAdmin() {
       <div id="leaveCalendarDayPanel"></div>
     </div>
 
+    <div class="card" data-tab="izinler" id="absentFixCard">
+      <h2>⚠️ Açıklanamayan Günler</h2>
+      ${leaveFlash ? `<div class="status-msg status-success" style="margin:0 0 10px">${leaveFlash}</div>` : ''}
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Kayıt ve izin girilmemiş günler. Her satırda tek dokunuşla neden seçin — form açılmadan anında kaydedilir.</p>
+      <div id="absentFixPanel"><p class="empty-note">Yükleniyor...</p></div>
+    </div>
+
     <div class="card" data-tab="izinler">
       <h2>📊 Yıl Özeti — ${todayStr.slice(0,4)}</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">1 Ocak'tan bugüne. İsme dokununca detay açılır.</p>
@@ -926,6 +933,7 @@ async function renderYearSummary() {
     const allLeaves = await getLeaves();
     const staffList = settings.staff || [];
     const report = computeReport(records, allLeaves, dates, staffList);
+    renderAbsentFixPanel(report, staffList);
 
     const rows = staffList.map(name => {
       const r = report[name];
@@ -953,6 +961,89 @@ async function renderYearSummary() {
     `;
   } catch (e) {
     panel.innerHTML = '<p class="empty-note" style="color:var(--danger)">Yıl özeti yüklenemedi: ' + (e && e.message ? e.message : 'hata') + '</p>';
+    const fp = document.getElementById('absentFixPanel');
+    if (fp) fp.innerHTML = '<p class="empty-note" style="color:var(--danger)">Liste yüklenemedi.</p>';
+  }
+}
+
+// ---- Açıklanamayan günleri tek dokunuşla düzeltme ----
+const TR_DAYS_SHORT = ['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+function fmtDateTR(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return `${d.getDate()} ${TR_MONTHS[d.getMonth()].slice(0,3)} ${TR_DAYS_SHORT[d.getDay()]}`;
+}
+
+function quickFixButtons(name, date) {
+  const n = name.replace(/'/g, "\\'");
+  const btn = (type, label, color, extraStyle) =>
+    `<button class="btn btn-small" style="margin:0;width:auto;padding:5px 9px;font-size:12px;border:1px solid ${color};color:${color};background:#fff;${extraStyle || ''}" onclick="quickFixAbsent('${n}','${date}','${type}')">${label}</button>`;
+  return `<div style="display:flex;gap:5px;flex-wrap:wrap">
+    ${btn('calisti', '✔ Çalıştı', 'var(--success)')}
+    ${btn('yillik', 'Yıllık', LEAVE_TYPES.yillik.color)}
+    ${btn('idari', 'İdari', LEAVE_TYPES.idari.color)}
+    ${btn('hastalik', 'Hastalık', LEAVE_TYPES.hastalik.color)}
+  </div>`;
+}
+
+function renderAbsentFixPanel(report, staffList) {
+  const panel = document.getElementById('absentFixPanel');
+  if (!panel) return;
+  const items = [];
+  staffList.forEach(name => {
+    const r = report[name];
+    if (!r) return;
+    r.days.filter(d => d.status === 'absent').forEach(d => items.push({ name, date: d.date }));
+  });
+  if (!items.length) {
+    panel.innerHTML = '<p class="empty-note">Açıklanamayan gün yok. 🎉</p>';
+    return;
+  }
+  // Tarihe göre (en yeni üstte), aynı tarihte personel sırasına göre
+  items.sort((a, b) => b.date.localeCompare(a.date) || staffList.indexOf(a.name) - staffList.indexOf(b.name));
+  const since = settings.trackingStart ? ` (${settings.trackingStart} tarihinden beri)` : '';
+  const rows = items.map(it => `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <div style="min-width:150px">
+        <div style="font-weight:600">${it.name}</div>
+        <div style="font-size:12px;color:var(--text-muted)">${fmtDateTR(it.date)} · ${it.date}${isSaturday(it.date) ? ' · Cumartesi (½ gün)' : ''}</div>
+      </div>
+      ${quickFixButtons(it.name, it.date)}
+    </div>`).join('');
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-weight:600;color:var(--danger)">${items.length} açıklanamayan gün${since}</span>
+    </div>
+    ${rows}
+    <p class="empty-note" style="text-align:left;margin-top:8px">Yarım gün izin ya da not gerekiyorsa aşağıdaki "+ Yeni İzin" formunu kullanın.</p>`;
+}
+
+async function quickFixAbsent(name, date, type) {
+  const btns = document.querySelectorAll('#adminView button[onclick^="quickFixAbsent"]');
+  btns.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+  try {
+    const leaves = await getLeaves();
+    // Aynı gün için zaten tam gün kayıt varsa tekrar ekleme
+    if (leaves.some(l => l.name === name && l.date === date && (l.portion || 'full') === 'full')) {
+      leaveFlash = `ℹ️ ${name} — ${date} için zaten kayıt var.`;
+    } else {
+      const groupId = 'g' + Date.now() + Math.random().toString(36).slice(2,7);
+      leaves.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2,7), groupId, name, date, type, portion: 'full', note: '' });
+      await saveLeaves(leaves);
+      leaveFlash = `✅ ${name} — ${date}: ${LEAVE_TYPES[type].label} olarak işlendi.`;
+    }
+    if (adminSubTab === 'raporlar' && document.getElementById('reportResult')) {
+      // Rapor sekmesindeyken sadece raporu tazele, kullanıcı yerini kaybetmesin
+      const st = document.getElementById('reportStatus');
+      await runReport();
+      if (st) { st.className = 'status-msg status-success'; st.textContent = leaveFlash; }
+      leaveFlash = '';
+      yearSummaryLoaded = false;
+    } else {
+      renderAdmin();
+    }
+  } catch (e) {
+    btns.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+    alert('Kaydetme hatası: ' + (e && e.message ? e.message : 'bilinmeyen hata'));
   }
 }
 
@@ -996,7 +1087,7 @@ async function toggleStaffDetail(name, panelId) {
     return `<tr><td>${d.date}</td><td><span style="color:${lt.color}">${lt.label}</span>${portionLabel(d.halfDayLeave.portion)}</td><td>${d.halfDayLeave.note || ''}</td></tr>`;
   }).join('');
 
-  const absentRowsHtml = absentDays.map(d => `<tr><td>${d.date}</td><td colspan="2"><button class="btn btn-secondary btn-small" style="margin:0;width:auto" onclick="quickAddLeave('${name.replace(/'/g,"\\'")}','${d.date}')">+ İzin Ekle</button></td></tr>`).join('');
+  const absentRowsHtml = absentDays.map(d => `<tr><td style="white-space:nowrap">${d.date}<br><span style="font-size:11px;color:var(--text-muted)">${fmtDateTR(d.date)}</span></td><td colspan="2">${quickFixButtons(name, d.date)}</td></tr>`).join('');
 
   panel.innerHTML = `
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
@@ -1643,7 +1734,7 @@ async function runReport() {
       return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--success)">✅ Çalıştı (giriş unutuldu, manuel işaretlendi)</span>${d.manualNote ? ` <span style="color:var(--text-muted);font-size:11px">(${d.manualNote})</span>` : ''}</td></tr>`;
     }
     if (d.status === 'absent') {
-      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--danger)">⚠️ Açıklanamayan devamsızlık</span> <button class="btn btn-secondary btn-small" style="margin:0;width:auto;padding:4px 8px;font-size:11px" onclick="quickAddLeave('${d.name.replace(/'/g,"\\'")}','${d.date}')">+ İzin Ekle</button></td></tr>`;
+      return `<tr><td>${d.date}</td><td>${d.name}</td><td colspan="2"><span style="color:var(--danger)">⚠️ Açıklanamayan devamsızlık</span><div style="margin-top:4px">${quickFixButtons(d.name, d.date)}</div></td></tr>`;
     }
     let arrCell = d.arrivalTime
       ? `${d.arrivalTime} ${d.arrivalStatus ? `<span style="color:${statusColor(d.arrivalStatus)};font-size:11px">(${d.arrivalStatus}${d.arrivalDiff ? ' ' + d.arrivalDiff + 'dk' : ''})</span>` : ''}`
