@@ -1761,7 +1761,8 @@ async function runSetcard() {
     const rows = staff.map(name => {
       const lv = ds => leaves.find(l => l.name === name && l.date === ds);
       // Bu ay
-      const days = scMonthDates(ym).filter(ds => scIsMealDay(ds, name));
+      // "Her zaman tam ay" personel: Cumartesi çalışmasa da Pzt-Cmt tüm iş günleri ödenir
+      const days = scMonthDates(ym).filter(ds => fullPay.includes(name) ? scIsMealDay(ds, '') : scIsMealDay(ds, name));
       const planned = days.reduce((s, ds) => s + scLeaveValue(lv(ds)), 0);
       // Geçen ay fiili
       let actual = 0, prevLeave = 0, prevAbsent = 0;
