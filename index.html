@@ -581,6 +581,7 @@ async function renderAdmin() {
       <button class="tab-btn ${adminSubTab === 'gunluk' ? 'active' : ''}" onclick="showAdminSubTab('gunluk')">Günlük</button>
       <button class="tab-btn ${adminSubTab === 'izinler' ? 'active' : ''}" onclick="showAdminSubTab('izinler')">İzinler</button>
       <button class="tab-btn ${adminSubTab === 'raporlar' ? 'active' : ''}" onclick="showAdminSubTab('raporlar')">Raporlar</button>
+      <button class="tab-btn ${adminSubTab === 'setcard' ? 'active' : ''}" onclick="showAdminSubTab('setcard')">Setcard</button>
       <button class="tab-btn ${adminSubTab === 'ayarlar' ? 'active' : ''}" onclick="showAdminSubTab('ayarlar')">Ayarlar</button>
     </div>
 
@@ -683,7 +684,8 @@ async function renderAdmin() {
         ${(settings.staff || []).map(s => `
           <div class="row-2" style="align-items:center;margin-bottom:8px">
             <div><label style="margin:0;font-weight:400;color:var(--text);display:flex;align-items:center;gap:6px"><input type="checkbox" class="doctor-check" data-name="${s.replace(/"/g,'&quot;')}" ${(settings.doctors || []).includes(s) ? 'checked' : ''} onchange="this.parentElement.querySelector('.dr-tag').style.display=this.checked?'inline':'none'" style="width:auto;margin:0" /> ${s} <span class="dr-tag" style="color:var(--primary);font-size:11px;font-weight:600;display:${(settings.doctors || []).includes(s) ? 'inline' : 'none'}">(Dr.)</span></label>
-            <label style="margin:0;font-weight:400;color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" class="nosat-check" data-name="${s.replace(/"/g,'&quot;')}" ${(settings.noSaturday || []).includes(s) ? 'checked' : ''} style="width:auto;margin:0" /> Cumartesi çalışmaz</label></div>
+            <label style="margin:0;font-weight:400;color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" class="nosat-check" data-name="${s.replace(/"/g,'&quot;')}" ${(settings.noSaturday || []).includes(s) ? 'checked' : ''} style="width:auto;margin:0" /> Cumartesi çalışmaz</label>
+            <label style="margin:0;font-weight:400;color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" class="fullpay-check" data-name="${s.replace(/"/g,'&quot;')}" ${(settings.mealFullPay || []).includes(s) ? 'checked' : ''} style="width:auto;margin:0" /> Setcard: her zaman tam ay</label></div>
             <input type="time" class="start-override-input" data-name="${s.replace(/"/g,'&quot;')}" value="${(settings.staffStartOverrides && settings.staffStartOverrides[s]) || ''}" style="margin:0" />
           </div>
         `).join('')}
@@ -811,6 +813,18 @@ async function renderAdmin() {
       <div class="status-msg" id="reportStatus"></div>
       <div id="reportResult" style="margin-top:12px"></div>
     </div>
+
+    <div class="card" data-tab="setcard">
+      <h2>🍽️ Setcard Yemek Hesabı</h2>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Seçilen ay için peşin yüklenecek tutar: (iş günü − resmi tatil − planlı izin) − geçen aydan mahsup. Mahsup = geçen ay peşin ödenen gün − geçen ay fiilen hak edilen gün (izin ve açıklanamayan günler düşülür). Pazar ve resmi tatiller ödenmez. "Her zaman tam ay" işaretli personele kesinti yapılmaz.</p>
+      <div class="row-2">
+        <div><label>Sipariş Ayı</label><input id="scMonth" type="month" value="${scDefaultMonth()}" /></div>
+        <div><label>Günlük Tutar (TL)</label><input id="scUnit" type="number" value="${settings.mealPerDay || 300}" /></div>
+      </div>
+      <button class="btn btn-primary" onclick="runSetcard()">Hesapla</button>
+      <div class="status-msg" id="scStatus"></div>
+      <div id="scResult" style="margin-top:12px"></div>
+    </div>
   `;
   updateLeavePortionAvailability();
   calLeavesCache = leaves;
@@ -887,6 +901,7 @@ async function saveStartOverrides() {
   settings.staffStartOverrides = overrides;
   settings.doctors = Array.from(document.querySelectorAll('.doctor-check')).filter(c => c.checked).map(c => c.dataset.name);
   settings.noSaturday = Array.from(document.querySelectorAll('.nosat-check')).filter(c => c.checked).map(c => c.dataset.name);
+  settings.mealFullPay = Array.from(document.querySelectorAll('.fullpay-check')).filter(c => c.checked).map(c => c.dataset.name);
   try {
     await saveSettings();
     statusEl.className = 'status-msg status-success';
@@ -923,7 +938,7 @@ let yearSummaryLoaded = false;
 function showAdminSubTab(tab) {
   adminSubTab = tab;
   document.querySelectorAll('#adminSubTabs .tab-btn').forEach((b, i) => {
-    const tabs = ['gunluk', 'izinler', 'raporlar', 'ayarlar'];
+    const tabs = ['gunluk', 'izinler', 'raporlar', 'setcard', 'ayarlar'];
     b.classList.toggle('active', tabs[i] === tab);
   });
   applyAdminSubTab();
@@ -1694,6 +1709,127 @@ function minutesToHM(mins) {
 
 let lastReport = null;
 let lastReportRange = null;
+
+// ===== SETCARD YEMEK HESABI =====
+let scLast = null;
+function scDefaultMonth() {
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function scMonthDates(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return dateRange(`${ym}-01`, `${ym}-${String(last).padStart(2, '0')}`);
+}
+function scPrevMonth(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+// Yemek ödenen gün mü? (Pazar ve resmi tatil hariç; "Cumartesi çalışmaz" personel için Cumartesi hariç)
+function scIsMealDay(ds, name) {
+  const dow = new Date(ds + 'T00:00:00').getDay();
+  if (dow === 0 || isHoliday(ds)) return false;
+  if (dow === 6 && (settings.noSaturday || []).includes(name)) return false;
+  return true;
+}
+function scLeaveValue(l) {
+  if (!l || l.type === 'calisti') return 0;
+  return (l.portion === 'morning' || l.portion === 'afternoon') ? 0.5 : 1;
+}
+async function scGetPaid() {
+  try { const r = await kvGet('setcard-paid'); return r && r.value ? JSON.parse(r.value) : {}; } catch (e) { return {}; }
+}
+async function runSetcard() {
+  const st = document.getElementById('scStatus');
+  const ym = document.getElementById('scMonth').value;
+  const unit = Number(document.getElementById('scUnit').value) || 300;
+  if (!ym) return;
+  st.className = 'status-msg status-loading'; st.textContent = 'Hesaplanıyor...';
+  try {
+    if (settings.mealPerDay !== unit) { settings.mealPerDay = unit; await saveSettings(); }
+    const prev = scPrevMonth(ym);
+    const staff = settings.staff || [];
+    const leaves = await getLeaves();
+    const paid = await scGetPaid();
+    const prevDates = scMonthDates(prev);
+    const todayStr = localDateStr();
+    const recs = await getRecordsForRange(prevDates[0], prevDates[prevDates.length - 1] < todayStr ? prevDates[prevDates.length - 1] : todayStr);
+    const hasRec = {};
+    recs.forEach(r => { hasRec[r.name + '|' + r.date] = true; });
+    const fullPay = settings.mealFullPay || [];
+    const rows = staff.map(name => {
+      const lv = ds => leaves.find(l => l.name === name && l.date === ds);
+      // Bu ay
+      const days = scMonthDates(ym).filter(ds => scIsMealDay(ds, name));
+      const planned = days.reduce((s, ds) => s + scLeaveValue(lv(ds)), 0);
+      // Geçen ay fiili
+      let actual = 0, prevLeave = 0, prevAbsent = 0;
+      const allDays = scMonthDates(prev);
+      allDays.forEach(ds => {
+        const dow = new Date(ds + 'T00:00:00').getDay();
+        if (dow === 0 || isHoliday(ds)) return;
+        const came = hasRec[name + '|' + ds] || (lv(ds) && lv(ds).type === 'calisti');
+        if (!scIsMealDay(ds, name) && !came) return; // Cumartesi çalışmayan ve gelmedi
+        const l = lv(ds);
+        const v = came ? 0 : scLeaveValue(l);
+        const beforeTracking = settings.trackingStart && ds < settings.trackingStart;
+        const absent = !came && !l && ds < todayStr && !beforeTracking ? 1 : 0;
+        prevLeave += v; prevAbsent += absent;
+        actual += 1 - v - absent;
+      });
+      const prepaid = paid[prev] && paid[prev][name] != null ? paid[prev][name] : null;
+      let mahsup = prepaid == null ? 0 : prepaid - actual;
+      const isFull = fullPay.includes(name);
+      let pesin = days.length - planned;
+      if (isFull) { pesin = days.length; mahsup = 0; }
+      const final = Math.max(0, pesin - mahsup);
+      return { name, workDays: days.length, planned: isFull ? 0 : planned, prepaid, actual, prevLeave, prevAbsent, mahsup, pesin, final, amount: final * unit, isFull };
+    });
+    const total = rows.reduce((s, r) => s + r.amount, 0);
+    scLast = { ym, prev, unit, rows };
+    const f = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
+    const tl = n => n.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+    const noPrev = rows.every(r => r.prepaid == null);
+    document.getElementById('scResult').innerHTML = `
+      ${noPrev ? `<p class="empty-note" style="text-align:left;color:var(--danger)">${prev} için kayıtlı peşin ödeme yok, mahsup yapılmadı.</p>` : ''}
+      <div style="overflow-x:auto"><table>
+        <tr><th>Personel</th><th>İş Günü</th><th>Planlı İzin</th><th>${prev} Mahsup</th><th>Yüklenecek Gün</th><th>Tutar</th></tr>
+        ${rows.map(r => `<tr>
+          <td>${r.name}${r.isFull ? ' <span style="color:var(--primary);font-size:11px">(tam ay)</span>' : ''}</td>
+          <td style="text-align:center">${r.workDays}</td>
+          <td style="text-align:center">${r.planned ? f(r.planned) : '—'}</td>
+          <td style="text-align:center" title="Peşin: ${r.prepaid == null ? '-' : f(r.prepaid)} · Fiili: ${f(r.actual)} · İzin: ${f(r.prevLeave)} · Açıklanamayan: ${r.prevAbsent}">${r.mahsup ? `<span style="color:${r.mahsup > 0 ? 'var(--danger)' : 'var(--success)'}">${r.mahsup > 0 ? '−' : '+'}${f(Math.abs(r.mahsup))}</span>` : '—'}</td>
+          <td style="text-align:center;font-weight:600">${f(r.final)}</td>
+          <td style="text-align:right;font-weight:600">${tl(r.amount)}</td>
+        </tr>`).join('')}
+        <tr><td colspan="5" style="text-align:right"><b>Toplam yüklenecek</b></td><td style="text-align:right"><b>${tl(total)} TL</b></td></tr>
+        <tr><td colspan="5" style="text-align:right">Ödenecek (%6 indirimli)</td><td style="text-align:right">${tl(Math.round(total * 0.94 * 100) / 100)} TL</td></tr>
+      </table></div>
+      <p class="empty-note" style="text-align:left">Mahsup hücresinin üzerine gelince detay görünür. Geçen ayın henüz gelmemiş günleri çalışılmış varsayılır; değişirse bir sonraki ay düzelir.</p>
+      <button class="btn btn-secondary" onclick="downloadSetcardCSV()">⬇️ Setcard Listesi CSV</button>
+      <button class="btn btn-primary" onclick="saveSetcardPaid()">✅ Sipariş Verildi — ${ym} peşin günlerini kaydet</button>
+    `;
+    st.className = 'status-msg status-success'; st.textContent = `✅ ${ym} hesaplandı.`;
+  } catch (e) {
+    st.className = 'status-msg status-error'; st.textContent = 'Hata: ' + (e && e.message ? e.message : e);
+  }
+}
+async function saveSetcardPaid() {
+  if (!scLast) return;
+  const paid = await scGetPaid();
+  paid[scLast.ym] = {};
+  // Bir sonraki ayın mahsubu için bu ayın "peşin" (tahmini) günleri saklanır
+  scLast.rows.forEach(r => { paid[scLast.ym][r.name] = r.pesin; });
+  await kvSet('setcard-paid', JSON.stringify(paid));
+  const st = document.getElementById('scStatus');
+  st.className = 'status-msg status-success'; st.textContent = `✅ ${scLast.ym} peşin günleri kaydedildi; gelecek ay mahsup buna göre yapılacak.`;
+}
+function downloadSetcardCSV() {
+  if (!scLast) return;
+  const rows = [['Ad Soyad', 'Gün', 'Tutar']].concat(scLast.rows.map(r => [r.name, r.final, r.amount]));
+  triggerCSVDownload(`Setcard_${scLast.ym}.csv`, rows);
+}
 
 async function runReport() {
   const start = document.getElementById('reportStart').value;
