@@ -1805,7 +1805,6 @@ async function runSetcard() {
           <td style="text-align:right;font-weight:600">${tl(r.amount)}</td>
         </tr>`).join('')}
         <tr><td colspan="5" style="text-align:right"><b>Toplam yüklenecek</b></td><td style="text-align:right"><b>${tl(total)} TL</b></td></tr>
-        <tr><td colspan="5" style="text-align:right">Ödenecek (%6 indirimli)</td><td style="text-align:right">${tl(Math.round(total * 0.94 * 100) / 100)} TL</td></tr>
       </table></div>
       <p class="empty-note" style="text-align:left">Mahsup hücresinin üzerine gelince detay görünür. Geçen ayın henüz gelmemiş günleri çalışılmış varsayılır; değişirse bir sonraki ay düzelir.</p>
       <button class="btn btn-secondary" onclick="downloadSetcardCSV()">⬇️ Setcard Listesi CSV</button>
