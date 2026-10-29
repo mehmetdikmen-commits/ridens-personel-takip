@@ -816,7 +816,7 @@ async function renderAdmin() {
 
     <div class="card" data-tab="setcard">
       <h2>🍽️ Setcard Yemek Hesabı</h2>
-      <p class="empty-note" style="text-align:left;margin:0 0 10px">Seçilen ay için peşin yüklenecek tutar: (iş günü − resmi tatil − planlı izin) − geçen aydan mahsup. Mahsup = geçen ay peşin ödenen gün − geçen ay fiilen hak edilen gün (izin ve açıklanamayan günler düşülür). Pazar ve resmi tatiller ödenmez. "Her zaman tam ay" işaretli personele kesinti yapılmaz.</p>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Seçilen ay için peşin yüklenecek tutar: (iş günü − resmi tatil − planlı izin) − geçen aydan mahsup. Mahsup = geçen ay peşin ödenen gün − geçen ay fiilen hak edilen gün (yıllık/idari izin ve açıklanamayan günler düşülür; hastalık izni düşülmez). Pazar ve resmi tatiller ödenmez. "Her zaman tam ay" işaretli personele kesinti yapılmaz.</p>
       <div class="row-2">
         <div><label>Sipariş Ayı</label><input id="scMonth" type="month" value="${scDefaultMonth()}" /></div>
         <div><label>Günlük Tutar (TL)</label><input id="scUnit" type="number" value="${settings.mealPerDay || 300}" /></div>
@@ -1734,7 +1734,7 @@ function scIsMealDay(ds, name) {
   return true;
 }
 function scLeaveValue(l) {
-  if (!l || l.type === 'calisti') return 0;
+  if (!l || l.type === 'calisti' || l.type === 'hastalik') return 0; // hastalık izninde yemek ücreti kesilmez
   return (l.portion === 'morning' || l.portion === 'afternoon') ? 0.5 : 1;
 }
 async function scGetPaid() {
