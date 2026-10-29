@@ -677,12 +677,13 @@ async function renderAdmin() {
     </div>
 
     <div class="card" data-tab="ayarlar">
-      <h2>Kişiye Özel Başlangıç Saati &amp; Doktor İşareti</h2>
+      <h2>Kişiye Özel Başlangıç Saati, Doktor &amp; Cumartesi Ayarı</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Bazı personelin (örn. doktorlar) mesaiye genel saatten farklı başladığı durumlar için. Boş bırakılan personel için genel saat (${settings.expectedStart || '09:00'} hafta içi, ${settings.saturdayStart || '09:00'} Cumartesi) geçerli olur. Bitiş saati herkes için aynı kalır.</p>
       <div id="startOverridesList">
         ${(settings.staff || []).map(s => `
           <div class="row-2" style="align-items:center;margin-bottom:8px">
-            <label style="margin:0;font-weight:400;color:var(--text);display:flex;align-items:center;gap:6px"><input type="checkbox" class="doctor-check" data-name="${s.replace(/"/g,'&quot;')}" ${(settings.doctors || []).includes(s) ? 'checked' : ''} onchange="this.parentElement.querySelector('.dr-tag').style.display=this.checked?'inline':'none'" style="width:auto;margin:0" /> ${s} <span class="dr-tag" style="color:var(--primary);font-size:11px;font-weight:600;display:${(settings.doctors || []).includes(s) ? 'inline' : 'none'}">(Dr.)</span></label>
+            <div><label style="margin:0;font-weight:400;color:var(--text);display:flex;align-items:center;gap:6px"><input type="checkbox" class="doctor-check" data-name="${s.replace(/"/g,'&quot;')}" ${(settings.doctors || []).includes(s) ? 'checked' : ''} onchange="this.parentElement.querySelector('.dr-tag').style.display=this.checked?'inline':'none'" style="width:auto;margin:0" /> ${s} <span class="dr-tag" style="color:var(--primary);font-size:11px;font-weight:600;display:${(settings.doctors || []).includes(s) ? 'inline' : 'none'}">(Dr.)</span></label>
+            <label style="margin:0;font-weight:400;color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:6px"><input type="checkbox" class="nosat-check" data-name="${s.replace(/"/g,'&quot;')}" ${(settings.noSaturday || []).includes(s) ? 'checked' : ''} style="width:auto;margin:0" /> Cumartesi çalışmaz</label></div>
             <input type="time" class="start-override-input" data-name="${s.replace(/"/g,'&quot;')}" value="${(settings.staffStartOverrides && settings.staffStartOverrides[s]) || ''}" style="margin:0" />
           </div>
         `).join('')}
@@ -885,6 +886,7 @@ async function saveStartOverrides() {
   });
   settings.staffStartOverrides = overrides;
   settings.doctors = Array.from(document.querySelectorAll('.doctor-check')).filter(c => c.checked).map(c => c.dataset.name);
+  settings.noSaturday = Array.from(document.querySelectorAll('.nosat-check')).filter(c => c.checked).map(c => c.dataset.name);
   try {
     await saveSettings();
     statusEl.className = 'status-msg status-success';
@@ -1593,6 +1595,8 @@ function computeReport(records, leaves, dateList, staffList) {
 
       const dayRecs = (dateGroups[dateStr] || []).slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
       const leave = leaveForDate(leaves, name, dateStr);
+      // "Cumartesi çalışmaz" işaretli personel: kaydı/izni olmayan Cumartesi beklenen gün sayılmaz; gelirse normal çalışılmış gün sayılır
+      if (!dayRecs.length && !leave && isSaturday(dateStr) && (settings.noSaturday || []).includes(name)) return;
       const isHalfDayLeave = leave && leave.type !== 'calisti' && (leave.portion === 'morning' || leave.portion === 'afternoon');
 
       if (!dayRecs.length) {
