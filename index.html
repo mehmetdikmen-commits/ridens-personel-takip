@@ -661,6 +661,22 @@ async function renderAdmin() {
     </div>
 
     <div class="card" data-tab="ayarlar">
+      <h2>Resmi Tatiller</h2>
+      <p class="empty-note" style="text-align:left;margin:0 0 10px">Buraya eklenen günler Pazar gibi kapalı sayılır: devamsızlık, geç/erken ve çalışma günü hesabına dahil edilmez.</p>
+      ${(settings.holidays || []).map(h => `
+        <div class="staff-chip">
+          <span>${h.date} · ${fmtDateTR(h.date)} — ${h.name}</span>
+          <button onclick="removeHoliday('${h.date}')">Sil</button>
+        </div>
+      `).join('') || '<p class="empty-note">Henüz resmi tatil girilmedi</p>'}
+      <div class="row-2" style="margin-top:8px">
+        <input id="newHolidayDate" type="date" style="margin-bottom:0" />
+        <input id="newHolidayName" placeholder="Açıklama (örn. Cumhuriyet Bayramı)" style="margin-bottom:0" />
+      </div>
+      <button class="btn btn-primary btn-small" onclick="addHoliday()">Tatil Ekle</button>
+    </div>
+
+    <div class="card" data-tab="ayarlar">
       <h2>Kişiye Özel Başlangıç Saati &amp; Doktor İşareti</h2>
       <p class="empty-note" style="text-align:left;margin:0 0 10px">Bazı personelin (örn. doktorlar) mesaiye genel saatten farklı başladığı durumlar için. Boş bırakılan personel için genel saat (${settings.expectedStart || '09:00'} hafta içi, ${settings.saturdayStart || '09:00'} Cumartesi) geçerli olur. Bitiş saati herkes için aynı kalır.</p>
       <div id="startOverridesList">
@@ -1178,7 +1194,8 @@ function renderLeaveCalendar() {
     const list = (byDay[ds] || []).slice().sort((a,b) => (isDoctor(b.name) - isDoctor(a.name)) || a.name.localeCompare(b.name));
     const drCount = list.filter(l => isDoctor(l.name)).length;
     const cls = ['cal-cell'];
-    if (dow === 0) cls.push('sun');
+    if (dow === 0 || isHoliday(ds)) cls.push('sun');
+    const hol = isHoliday(ds) ? `<span class="cal-chip" style="background:#eceff3;color:var(--text-muted)" title="${holidayName(ds)}">🇹🇷 ${holidayName(ds)}</span>` : '';
     if (ds === todayStr) cls.push('today');
     if (ds === calSelectedDay) cls.push('selected');
     if (drCount >= 2) cls.push('conflict-dr'); else if (list.length >= 3) cls.push('busy');
@@ -1187,7 +1204,7 @@ function renderLeaveCalendar() {
       const half = l.portion === 'morning' ? ' ½s' : l.portion === 'afternoon' ? ' ½ö' : '';
       return `<span class="cal-chip t-${l.type} ${isDoctor(l.name) ? 'dr' : ''}" title="${l.name} — ${LEAVE_TYPES[l.type] ? LEAVE_TYPES[l.type].label : l.type}">${isDoctor(l.name) ? 'Dr.' : ''}${shortName(l.name)}${half}</span>`;
     }).join('');
-    cells += `<div class="${cls.join(' ')}" onclick="calSelectDay('${ds}')"><div class="cal-day"><span>${d}</span>${warn}</div>${chips}</div>`;
+    cells += `<div class="${cls.join(' ')}" onclick="calSelectDay('${ds}')"><div class="cal-day"><span>${d}</span>${warn}</div>${hol}${chips}</div>`;
   }
 
   panel.innerHTML = `
@@ -1496,6 +1513,7 @@ async function getRecordsForRange(startStr, endStr) {
 function getExpectedForDate(dateStr, name) {
   const dow = new Date(dateStr + 'T00:00:00').getDay(); // 0=Pazar, 6=Cumartesi
   if (dow === 0) return null; // Pazar - kapalı
+  if (isHoliday(dateStr)) return null; // Resmi tatil - kapalı
   const base = dow === 6
     ? { start: settings.saturdayStart || '09:00', end: settings.saturdayEnd || '14:00' }
     : { start: settings.expectedStart || '09:00', end: settings.expectedEnd || '18:00' };
@@ -1504,6 +1522,32 @@ function getExpectedForDate(dateStr, name) {
     return { start: settings.staffStartOverrides[name], end: base.end };
   }
   return base;
+}
+
+function isHoliday(dateStr) {
+  return (settings.holidays || []).some(h => h.date === dateStr);
+}
+
+function holidayName(dateStr) {
+  const h = (settings.holidays || []).find(h => h.date === dateStr);
+  return h ? (h.name || 'Resmi Tatil') : '';
+}
+
+async function addHoliday() {
+  const d = document.getElementById('newHolidayDate').value;
+  const n = document.getElementById('newHolidayName').value.trim();
+  if (!d) return;
+  settings.holidays = (settings.holidays || []).filter(h => h.date !== d);
+  settings.holidays.push({ date: d, name: n || 'Resmi Tatil' });
+  settings.holidays.sort((a, b) => a.date.localeCompare(b.date));
+  await saveSettings();
+  renderAdmin();
+}
+
+async function removeHoliday(d) {
+  settings.holidays = (settings.holidays || []).filter(h => h.date !== d);
+  await saveSettings();
+  renderAdmin();
 }
 
 function isSaturday(dateStr) {
